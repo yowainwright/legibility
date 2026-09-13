@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://unpkg.com/legibility/src/schema.json",
+  "x-revision": 2,
+  "x-history": "https://github.com/yowainwright/legibility/commits/main/src/schema.json",
+  "title": "Legibility Configuration",
+  "description": "Configuration for selecting and invoking Legibility linters.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["linters"],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "description": "Configuration schema URL."
+    },
+    "version": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Configuration format version."
+    },
+    "languages": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/language"
+      },
+      "description": "Languages used by the project, keyed by stable language ID."
+    },
+    "linters": {
+      "type": "object",
+      "propertyNames": {
+        "enum": [
+          "fs-lint",
+          "src-lint",
+          "struct-lint",
+          "eslint-plugin-legibility",
+          "oxlint-plugin-legibility",
+          "golangci-lint-legibility",
+          "ruff-legibility",
+          "shellcheck-legibility",
+          "sqlfluff-plugin-legibility"
+        ]
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/linter"
+      },
+      "description": "Linter configuration, keyed by stable linter ID."
+    }
+  },
+  "$defs": {
+    "language": {
+      "type": "object",
+      "description": "Language-specific settings reserved for future defaults.",
+      "additionalProperties": true
+    },
+    "linter": {
+      "type": "object",
+      "description": "Configuration passed to one underlying linter.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true,
+          "description": "Whether this linter runs by default."
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "default": [],
+          "description": "Native command-line arguments passed unchanged to the linter."
+        }
+      },
+      "additionalProperties": true
+    }
+  }
+}

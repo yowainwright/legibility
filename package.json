@@ -1,0 +1,38 @@
+{
+  "name": "legibility",
+  "version": "0.0.0",
+  "description": "Configure existing Legibility tools for readable code.",
+  "bin": {
+    "legibility": "./bin/legibility"
+  },
+  "files": [
+    "skills",
+    "src"
+  ],
+  "type": "module",
+  "scripts": {
+    "build": "node --experimental-strip-types ./src/cli/index.ts --help",
+    "format": "oxfmt --check .",
+    "format:fix": "oxfmt --write .",
+    "lint": "oxlint src --deny-warnings",
+    "typecheck": "tsc --noEmit",
+    "test": "node --test",
+    "deps:check": "codependence --files package.json",
+    "deps:security": "pastoralist --dry-run --checkSecurity --summary -d package.json"
+  },
+  "devDependencies": {
+    "@types/node": "26.4.1",
+    "codependence": "^1.0.15",
+    "eslint-plugin-legibility": "0.3.3",
+    "oxfmt": "^0.63.0",
+    "oxlint": "^1.81.0",
+    "pastoralist": "1.13.2",
+    "scriptc": "^0.0.35",
+    "turbo": "2.10.12",
+    "typescript": "7.0.2"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "packageManager": "pnpm@11.21.0"
+}
