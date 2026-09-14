@@ -1,15 +1,9 @@
 import * as readline from "node:readline";
+import { logger as createLogger } from "../../obs/index.ts";
+import { ANSI } from "../constants.ts";
+import type { PromptChoice } from "./types.ts";
 
-const ANSI = {
-  BOLD: "\x1b[1m",
-  CYAN: "\x1b[36m",
-  GRAY: "\x1b[90m",
-  GREEN: "\x1b[32m",
-  RED: "\x1b[31m",
-  RESET: "\x1b[0m",
-  HIDE_CURSOR: "\x1b[?25l",
-  SHOW_CURSOR: "\x1b[?25h",
-} as const;
+const log = createLogger({ file: "prompts/index.ts" });
 
 const SELECTOR_VIEWPORT_SIZE = 8;
 const SELECTOR_CURSOR = "›";
@@ -19,13 +13,7 @@ const RADIO_SELECTED_MARK = "●";
 const RADIO_UNSELECTED_MARK = "○";
 const DISABLED_MARK = "─";
 
-export type PromptChoice = {
-  name: string;
-  value: string;
-  description?: string;
-  checked?: boolean;
-  disabled?: boolean | string;
-};
+export type { PromptChoice } from "./types.ts";
 
 type PromptKey = { name?: string; ctrl?: boolean };
 type SelectorMode = "multi" | "radio";
@@ -41,8 +29,7 @@ export type ChoiceFrameOptions = {
   footer?: string;
 };
 
-const isDisabled = (choice: PromptChoice): boolean =>
-  choice.disabled !== undefined && choice.disabled !== false;
+const isDisabled = (choice: PromptChoice): boolean => Boolean(choice.disabled);
 
 const hasInteractiveTerminal = (): boolean =>
   Boolean(process.stdin.isTTY) && Boolean(process.stdout.isTTY);
@@ -116,13 +103,15 @@ const updateViewportStart = (
   return viewportStart;
 };
 
-const formatChoiceFrame = (
-  message: string,
-  choices: PromptChoice[],
-  state: SelectorState,
-  mode: SelectorMode,
-  footer?: string,
-): string[] => {
+type ChoiceFrame = {
+  message: string;
+  choices: PromptChoice[];
+  state: SelectorState;
+  mode: SelectorMode;
+  footer?: string;
+};
+
+const formatChoiceFrame = ({ message, choices, state, mode, footer }: ChoiceFrame): string[] => {
   const visibleChoices = choices.slice(
     state.viewportStart,
     state.viewportStart + SELECTOR_VIEWPORT_SIZE,
@@ -209,7 +198,7 @@ const cancelFrame = (message: string): string[] => [
 
 const isCancelKey = (input: string | undefined, key: PromptKey): boolean => {
   const isEscape = key.name === "escape" || input === "\u001b";
-  const isCtrlC = key.ctrl === true && key.name === "c";
+  const isCtrlC = Boolean(key.ctrl) && key.name === "c";
   return isEscape || isCtrlC;
 };
 
@@ -251,100 +240,176 @@ const promptCancelled = (): Error => {
   return error;
 };
 
+type SelectorRuntime = {
+  message: string;
+  choices: PromptChoice[];
+  mode: SelectorMode;
+  state: SelectorState;
+  previousLineCount: number;
+  isFinished: boolean;
+};
+
+type SelectorHandlers = {
+  onKeypress: (input: string | undefined, key?: PromptKey) => void;
+  onData: (chunk: Buffer) => void;
+};
+
+type SelectorFinish = (error?: Error) => void;
+
+const createSelectorState = (choices: PromptChoice[]): SelectorState => ({
+  cursorIndex: firstSelectableIndex(choices),
+  selected: choices.map((choice) => Boolean(choice.checked) && !isDisabled(choice)),
+  viewportStart: 0,
+});
+
+const renderSelector = (runtime: SelectorRuntime): void => {
+  const frame = formatChoiceFrame({
+    message: runtime.message,
+    choices: runtime.choices,
+    state: runtime.state,
+    mode: runtime.mode,
+  });
+  runtime.previousLineCount = writeFrame(
+    frame,
+    runtime.previousLineCount,
+    runtime.previousLineCount === 0,
+  );
+};
+
+const cleanupSelector = (handlers: SelectorHandlers): void => {
+  process.stdin.off("keypress", handlers.onKeypress);
+  process.stdin.off("data", handlers.onData);
+  if (typeof process.stdin.setRawMode === "function") process.stdin.setRawMode(false);
+  process.stdin.pause();
+  process.stdout.write(ANSI.SHOW_CURSOR);
+};
+
+const finishSelector = ({
+  runtime,
+  handlers,
+  error,
+  resolve,
+  reject,
+}: {
+  runtime: SelectorRuntime;
+  handlers: SelectorHandlers;
+  error: Error | undefined;
+  resolve: (value: string[]) => void;
+  reject: (reason?: unknown) => void;
+}): void => {
+  if (runtime.isFinished) return;
+  runtime.isFinished = true;
+  cleanupSelector(handlers);
+  const lines = error
+    ? cancelFrame(runtime.message)
+    : finalFrame(runtime.message, runtime.choices, runtime.state, runtime.mode);
+  writeFrame(lines, runtime.previousLineCount);
+  process.stdout.write("\n");
+  if (error) {
+    reject(error);
+    return;
+  }
+  resolve(selectedValues(runtime.choices, runtime.state, runtime.mode));
+};
+
+const handleSelectorKeypress = ({
+  runtime,
+  input,
+  key,
+  finish,
+  render,
+}: {
+  runtime: SelectorRuntime;
+  input: string | undefined;
+  key: PromptKey;
+  finish: SelectorFinish;
+  render: () => void;
+}): void => {
+  if (isCancelKey(input, key)) return finish(promptCancelled());
+  if (isConfirmKey(key)) return finish();
+  const direction = cursorDirection(key);
+  if (direction !== 0) {
+    Object.assign(runtime.state, moveSelector(runtime.state, direction, runtime.choices));
+    render();
+    return;
+  }
+  const isSpace = input === " " || key.name === "space";
+  if (isSpace) return;
+  const shortcut = input?.toLowerCase() ?? "";
+  const isSelectionKey = ["a", "n"].includes(shortcut);
+  if (!isSelectionKey) return;
+  Object.assign(runtime.state, updateSelected(runtime.state, input, key, runtime.choices));
+  render();
+};
+
+const handleSelectorData = (runtime: SelectorRuntime, chunk: Buffer, render: () => void): void => {
+  const isMultiSelect = runtime.mode === "multi";
+  const hasSpace = chunk.toString("utf8").includes(" ");
+  const shouldIgnoreData = !isMultiSelect || !hasSpace;
+  if (shouldIgnoreData) return;
+  Object.assign(
+    runtime.state,
+    updateSelected(runtime.state, " ", { name: "space" }, runtime.choices),
+  );
+  render();
+};
+
+const createSelectorHandlers = (
+  runtime: SelectorRuntime,
+  finish: SelectorFinish,
+  render: () => void,
+): SelectorHandlers => ({
+  onKeypress: (input, key = {}) => handleSelectorKeypress({ runtime, input, key, finish, render }),
+  onData: (chunk) => handleSelectorData(runtime, chunk, render),
+});
+
+const setupSelector = (
+  handlers: SelectorHandlers,
+  render: () => void,
+  reject: (reason?: unknown) => void,
+): void => {
+  try {
+    const hasRawMode = typeof process.stdin.setRawMode === "function";
+    const isInteractive = hasInteractiveTerminal() && hasRawMode;
+    if (!isInteractive) {
+      reject(new Error("Interactive prompt input is unavailable"));
+      return;
+    }
+    readline.emitKeypressEvents(process.stdin);
+    process.stdin.setRawMode(true);
+    process.stdin.resume();
+    process.stdin.on("keypress", handlers.onKeypress);
+    process.stdin.on("data", handlers.onData);
+    process.stdout.write(ANSI.HIDE_CURSOR);
+    render();
+  } catch (error: unknown) {
+    cleanupSelector(handlers);
+    reject(error);
+  }
+};
+
 const runSelector = (
   message: string,
   choices: PromptChoice[],
   mode: SelectorMode,
-): Promise<string[]> =>
-  new Promise((resolve, reject) => {
-    if (choices.length === 0) {
-      reject(new Error("Prompt requires at least one choice"));
-      return;
-    }
-    const state: SelectorState = {
-      cursorIndex: firstSelectableIndex(choices),
-      selected: choices.map((choice) => choice.checked === true && !isDisabled(choice)),
-      viewportStart: 0,
+): Promise<string[]> => {
+  if (choices.length === 0) return Promise.reject(new Error("Prompt requires at least one choice"));
+  return new Promise((resolve, reject) => {
+    const runtime: SelectorRuntime = {
+      message,
+      choices,
+      mode,
+      state: createSelectorState(choices),
+      previousLineCount: 0,
+      isFinished: false,
     };
-    let previousLineCount = 0;
-    let isFinished = false;
-    const cleanup = (): void => {
-      process.stdin.off("keypress", onKeypress);
-      process.stdin.off("data", onData);
-      if (typeof process.stdin.setRawMode === "function") process.stdin.setRawMode(false);
-      process.stdin.pause();
-      process.stdout.write(ANSI.SHOW_CURSOR);
-    };
-    const finish = (error?: Error): void => {
-      if (isFinished) return;
-      isFinished = true;
-      cleanup();
-      const lines = error ? cancelFrame(message) : finalFrame(message, choices, state, mode);
-      writeFrame(lines, previousLineCount);
-      process.stdout.write("\n");
-      if (error) reject(error);
-      else resolve(selectedValues(choices, state, mode));
-    };
-    const render = (): void => {
-      previousLineCount = writeFrame(
-        formatChoiceFrame(message, choices, state, mode),
-        previousLineCount,
-        previousLineCount === 0,
-      );
-    };
-    const toggleCurrentChoice = (): void => {
-      Object.assign(state, updateSelected(state, " ", { name: "space" }, choices));
-      render();
-    };
-    const onKeypress = (input: string | undefined, key: PromptKey = {}): void => {
-      if (isCancelKey(input, key)) {
-        finish(promptCancelled());
-        return;
-      }
-      if (isConfirmKey(key)) {
-        finish();
-        return;
-      }
-      const direction = cursorDirection(key);
-      if (direction !== 0) {
-        Object.assign(state, moveSelector(state, direction, choices));
-        render();
-        return;
-      }
-      const isSpace = input === " " || key.name === "space";
-      if (isSpace) return;
-      const shortcut = input?.toLowerCase() ?? "";
-      const isSelectionKey = ["a", "n"].includes(shortcut);
-      if (isSelectionKey) {
-        Object.assign(state, updateSelected(state, input, key, choices));
-        render();
-      }
-    };
-    const onData = (chunk: Buffer): void => {
-      const isMultiSelect = mode === "multi";
-      const hasSpace = chunk.toString("utf8").includes(" ");
-      const shouldToggle = isMultiSelect && hasSpace;
-      if (shouldToggle) toggleCurrentChoice();
-    };
-    try {
-      const hasRawMode = typeof process.stdin.setRawMode === "function";
-      const isInteractive = hasInteractiveTerminal() && hasRawMode;
-      if (!isInteractive) {
-        reject(new Error("Interactive prompt input is unavailable"));
-        return;
-      }
-      readline.emitKeypressEvents(process.stdin);
-      process.stdin.setRawMode(true);
-      process.stdin.resume();
-      process.stdin.on("keypress", onKeypress);
-      process.stdin.on("data", onData);
-      process.stdout.write(ANSI.HIDE_CURSOR);
-      render();
-    } catch (error: unknown) {
-      cleanup();
-      reject(error);
-    }
+    const render = (): void => renderSelector(runtime);
+    const finish = (error?: Error): void =>
+      finishSelector({ runtime, handlers, error, resolve, reject });
+    const handlers = createSelectorHandlers(runtime, finish, render);
+    setupSelector(handlers, render, reject);
   });
+};
 
 const askLine = (message: string): Promise<string> =>
   new Promise((resolve) => {
@@ -360,17 +425,18 @@ const parseSelectedChoices = (answer: string, choices: PromptChoice[]): string[]
     .split(",")
     .map((value) => Number.parseInt(value.trim(), 10))
     .filter((value) => Number.isInteger(value) && value >= 1 && value <= choices.length);
-  return numbers
-    .map((number) => choices[number - 1])
-    .filter((choice) => choice !== undefined && !isDisabled(choice))
-    .map(({ value }) => value);
+  const selectedChoices = numbers.map((number) => choices[number - 1]);
+  const enabledChoices = selectedChoices.filter(
+    (choice) => choice !== undefined && !isDisabled(choice),
+  );
+  return enabledChoices.map(({ value }) => value);
 };
 
 const numberedSelect = async (message: string, choices: PromptChoice[]): Promise<string[]> => {
-  console.log(`\n${message}`);
+  log.print(`\n${message}`);
   choices.forEach((choice, index) => {
     const suffix = isDisabled(choice) ? ` (${choice.disabled})` : "";
-    console.log(`  ${index + 1}. ${choice.name}${suffix}`);
+    log.print(`  ${index + 1}. ${choice.name}${suffix}`);
   });
   const answer = await askLine("\nEnter choices (comma-separated numbers): ");
   return parseSelectedChoices(answer, choices);
@@ -420,10 +486,16 @@ export const formatCheckboxDemo = (
   const cursorIndex = options.cursorIndex ?? firstSelectableIndex(choices);
   const state: SelectorState = {
     cursorIndex,
-    selected: choices.map((choice) => choice.checked === true && !isDisabled(choice)),
+    selected: choices.map((choice) => Boolean(choice.checked) && !isDisabled(choice)),
     viewportStart: 0,
   };
-  return formatChoiceFrame(message, choices, state, "multi", options.footer);
+  return formatChoiceFrame({
+    message,
+    choices,
+    state,
+    mode: "multi",
+    footer: options.footer,
+  });
 };
 
 export const formatConfirmDemo = (message: string, defaultValue: boolean): string => {

@@ -1,6 +1,6 @@
 export type JsonObject = Record<string, unknown>;
 
-export type Linter = {
+export type Linter = JsonObject & {
   enabled: boolean;
   args: string[];
 };
@@ -20,7 +20,7 @@ export type DetectedLanguage = {
   files: string[];
 };
 
-export type Config = {
+export type Config = JsonObject & {
   linters: Record<string, Linter>;
   languages: Record<string, JsonObject>;
 };
@@ -31,6 +31,8 @@ export type Source = {
   config: Config;
 };
 
+export type CommandAvailability = (command: string, root: string) => boolean;
+
 export type Options = {
   configPath?: string;
   dryRun: boolean;
@@ -39,4 +41,5 @@ export type Options = {
   nativeArgs: string[];
   styleguide: boolean;
   version: boolean;
+  verbose: boolean;
 };

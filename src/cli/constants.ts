@@ -1,8 +1,41 @@
 import type { LinterDefinition } from "./types.ts";
+import type { PromptChoice } from "./prompts/types.ts";
 
 export const VERSION = "0.0.0";
 
 export const CONFIG_FILENAMES = [".legibilityrc", "legibility.json"] as const;
+
+export const ANSI = {
+  BOLD: "\x1b[1m",
+  CYAN: "\x1b[36m",
+  GRAY: "\x1b[90m",
+  GREEN: "\x1b[32m",
+  RED: "\x1b[31m",
+  RESET: "\x1b[0m",
+  HIDE_CURSOR: "\x1b[?25l",
+  SHOW_CURSOR: "\x1b[?25h",
+} as const;
+
+export const IGNORED_DIRECTORIES = new Set([
+  ".cache",
+  ".agents",
+  ".claude",
+  ".codex",
+  ".git",
+  ".next",
+  ".turbo",
+  ".tox",
+  ".venv",
+  "bin",
+  "build",
+  "coverage",
+  "dist",
+  "node_modules",
+  "target",
+  "tmp",
+  "vendor",
+  ".vscode",
+]);
 
 export const LANGUAGE_DEFINITIONS = [
   { id: "c", label: "C" },
@@ -103,6 +136,66 @@ export const LINTER_DEFINITIONS: LinterDefinition[] = [
   },
 ];
 
+export const STYLEGUIDE_PREVIEW_MARK = "◆";
+export const STYLEGUIDE_CANCEL_MARK = "✗";
+
+export const STYLEGUIDE_LANGUAGE_CHOICES: PromptChoice[] = [
+  {
+    name: "TypeScript",
+    value: "typescript",
+    description: "28 files · src/cli/index.ts, src/cli/utils.ts, …",
+    checked: true,
+  },
+  { name: "JavaScript", value: "javascript", description: "not detected" },
+  { name: "Python", value: "python", description: "not detected" },
+  { name: "Go", value: "go", description: "not detected" },
+];
+
+export const STYLEGUIDE_LINTER_CHOICES: PromptChoice[] = [
+  {
+    name: "oxlint-plugin-legibility",
+    value: "oxlint-plugin-legibility",
+    description: "JavaScript and TypeScript readability · oxlint",
+    checked: true,
+  },
+  {
+    name: "eslint-plugin-legibility",
+    value: "eslint-plugin-legibility",
+    description: "JavaScript and TypeScript readability · eslint",
+    disabled: "not installed",
+  },
+  {
+    name: "src-lint",
+    value: "src-lint",
+    description: "import boundary policy · src-lint",
+    disabled: "not installed",
+  },
+];
+
+export const STYLEGUIDE_TOUR_CHOICES: PromptChoice[] = [
+  { name: "Welcome confirmation", value: "welcome", description: "yes/no default handling" },
+  {
+    name: "Detect languages",
+    value: "languages",
+    description: "checkboxes, Space toggle, and Enter confirm",
+  },
+  {
+    name: "Select available linters",
+    value: "linters",
+    description: "multiple circles with disabled and preselected choices",
+  },
+  {
+    name: "Configure native arguments",
+    value: "arguments",
+    description: "text input and defaults",
+  },
+  { name: "Review configuration", value: "review", description: "read-only configuration preview" },
+  { name: "Preview commands", value: "preview", description: "dry-run output" },
+  { name: "Approve execution", value: "execution", description: "final yes/no gate" },
+  { name: "Cancellation", value: "cancellation", description: "Esc cleanup and exit code" },
+  { name: "Exit styleguide", value: "exit", description: "return to the shell" },
+];
+
 export const SETUP_QUESTION = "Set up Legibility for this project?";
 
 export const NO_SETUP_MESSAGE =
@@ -119,4 +212,5 @@ Options:
       --linter <name>  Run one configured linter; repeat for several
       --styleguide     Show visual examples of the guided setup
   -v, --version        Show the version
+      --verbose        Show local diagnostic logs on stderr
 `;

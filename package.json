@@ -11,7 +11,8 @@
   ],
   "type": "module",
   "scripts": {
-    "build": "node --experimental-strip-types ./src/cli/index.ts --help",
+    "build": "node --experimental-strip-types ./bin/legibility --help",
+    "build:native": "node --experimental-strip-types ./scripts/build/index.ts",
     "format": "oxfmt --check .",
     "format:fix": "oxfmt --write .",
     "lint": "oxlint src --deny-warnings",
@@ -27,6 +28,7 @@
     "oxfmt": "^0.63.0",
     "oxlint": "^1.81.0",
     "pastoralist": "1.13.2",
+    "rolldown": "1.2.5",
     "scriptc": "^0.0.35",
     "turbo": "2.10.12",
     "typescript": "7.0.2"
