@@ -18,6 +18,9 @@
     "lint": "oxlint src --deny-warnings",
     "typecheck": "tsc --noEmit",
     "test": "node --test",
+    "hooks:setup": "sh scripts/setup.sh",
+    "prepare": "sh scripts/setup.sh",
+    "setup": "pnpm install && sh scripts/setup.sh && pnpm run build",
     "deps:check": "codependence --files package.json",
     "deps:security": "pastoralist --dry-run --checkSecurity --summary -d package.json"
   },
