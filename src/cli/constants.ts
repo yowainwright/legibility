@@ -1,4 +1,4 @@
-import type { LinterDefinition } from "./types.ts";
+import type { DetectedLanguage, LinterDefinition } from "./types.ts";
 import type { PromptChoice } from "./prompts/types.ts";
 
 export const VERSION = "0.0.0";
@@ -77,6 +77,7 @@ export const LINTER_DEFINITIONS: LinterDefinition[] = [
     kind: "standalone",
     description: "file and path policy",
     languages: ["*"] as const,
+    brewFormula: "fs-lint",
   },
   {
     id: "src-lint",
@@ -84,6 +85,7 @@ export const LINTER_DEFINITIONS: LinterDefinition[] = [
     kind: "standalone",
     description: "import boundary policy",
     languages: ["javascript", "typescript", "python", "go", "proto"] as const,
+    brewFormula: "src-lint",
   },
   {
     id: "struct-lint",
@@ -91,6 +93,7 @@ export const LINTER_DEFINITIONS: LinterDefinition[] = [
     kind: "standalone",
     description: "declaration and function order",
     languages: ["*"] as const,
+    brewFormula: "struct-lint",
   },
   {
     id: "eslint-plugin-legibility",
@@ -126,6 +129,7 @@ export const LINTER_DEFINITIONS: LinterDefinition[] = [
     kind: "hosted",
     description: "Shell readability policy",
     languages: ["shell"] as const,
+    brewFormula: "shellcheck-legibility",
   },
   {
     id: "sqlfluff-plugin-legibility",
@@ -138,6 +142,15 @@ export const LINTER_DEFINITIONS: LinterDefinition[] = [
 
 export const STYLEGUIDE_PREVIEW_MARK = "◆";
 export const STYLEGUIDE_CANCEL_MARK = "✗";
+
+export const STYLEGUIDE_DETECTED_LANGUAGES: DetectedLanguage[] = [
+  {
+    id: "typescript",
+    label: "TypeScript",
+    count: 28,
+    files: ["src/cli/index.ts", "src/cli/utils.ts", "src/cli/constants.ts"],
+  },
+];
 
 export const STYLEGUIDE_LANGUAGE_CHOICES: PromptChoice[] = [
   {
@@ -172,7 +185,27 @@ export const STYLEGUIDE_LINTER_CHOICES: PromptChoice[] = [
   },
 ];
 
+export const STYLEGUIDE_UPDATE_CHOICES: PromptChoice[] = [
+  {
+    name: "fs-lint",
+    value: "fs-lint",
+    description: "0.2.1 → 0.2.2 · brew upgrade fs-lint",
+    checked: true,
+  },
+  {
+    name: "src-lint",
+    value: "src-lint",
+    description: "0.1.0 → 0.1.1 · brew upgrade src-lint",
+    checked: true,
+  },
+];
+
 export const STYLEGUIDE_TOUR_CHOICES: PromptChoice[] = [
+  {
+    name: "Full setup flow",
+    value: "full",
+    description: "welcome through dry-run and execution approval",
+  },
   { name: "Welcome confirmation", value: "welcome", description: "yes/no default handling" },
   {
     name: "Detect languages",
@@ -192,6 +225,11 @@ export const STYLEGUIDE_TOUR_CHOICES: PromptChoice[] = [
   { name: "Review configuration", value: "review", description: "read-only configuration preview" },
   { name: "Preview commands", value: "preview", description: "dry-run output" },
   { name: "Approve execution", value: "execution", description: "final yes/no gate" },
+  {
+    name: "Update Homebrew linters",
+    value: "update",
+    description: "select outdated linters and approve upgrades",
+  },
   { name: "Cancellation", value: "cancellation", description: "Esc cleanup and exit code" },
   { name: "Exit styleguide", value: "exit", description: "return to the shell" },
 ];
@@ -201,9 +239,12 @@ export const SETUP_QUESTION = "Set up Legibility for this project?";
 export const NO_SETUP_MESSAGE =
   "okay! if you already have `legibility`, but we somehow we missed the path, just run `legibility --config <path>`, eg `legibility --config ./package.json`. Otherwise, it'll be there for ya. Run `legibility --help` for help";
 
-export const HELP_TEXT = `Usage: legibility [options] [-- native-args]
+export const HELP_TEXT = `Usage: legibility [command] [options] [-- native-args]
 
 Run the enabled linters from the discovered Legibility configuration.
+
+Commands:
+  update               Check and update outdated Homebrew linters
 
 Options:
   -c, --config <path>  Use a JSON config or package.json

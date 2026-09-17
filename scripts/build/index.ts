@@ -10,7 +10,9 @@ import {
   BIN_RUNTIME_ENTRY_FILE,
   BIN_RUNTIME_PACKAGE_FILE,
   BUILD_SCRIPT_LABEL,
+  NATIVE_RELEASE_FLAG,
   RUNTIME_PACKAGE_NAME,
+  nativeReleaseOutputFile,
 } from "./constants.ts";
 import type { RuntimePackageManifest } from "./types.ts";
 import { runCommand } from "./utils.ts";
@@ -66,27 +68,29 @@ const bundleRuntime = (): void => {
   ]);
 };
 
-const compileBinary = (): void => {
+const compileBinary = (outputFile: string): void => {
   runBuildCommand("scriptc", [
     "build",
     BIN_ENTRY_FILE,
     "--out",
-    BIN_OUTPUT_FILE,
+    outputFile,
     "--dynamic",
     "--no-keep-c",
   ]);
 };
 
-const printBinarySize = (): void => {
-  const sizeInMb = (statSync(BIN_OUTPUT_FILE).size / 1024 / 1024).toFixed(1);
-  log.print(`Built ${BIN_OUTPUT_FILE} (${sizeInMb}MB)`);
+const printBinarySize = (outputFile: string): void => {
+  const sizeInMb = (statSync(outputFile).size / 1024 / 1024).toFixed(1);
+  log.print(`Built ${outputFile} (${sizeInMb}MB)`);
 };
 
 const buildBinary = (): void => {
+  const isReleaseBuild = process.argv.includes(NATIVE_RELEASE_FLAG);
+  const outputFile = isReleaseBuild ? nativeReleaseOutputFile() : BIN_OUTPUT_FILE;
   writeBinarySources();
   bundleRuntime();
-  compileBinary();
-  printBinarySize();
+  compileBinary(outputFile);
+  printBinarySize(outputFile);
 };
 
 try {

@@ -10,7 +10,14 @@ import {
 } from "node:fs";
 import test from "node:test";
 import { join } from "node:path";
-import { parseOptions, readSource, runLinters } from "../src/cli/index.ts";
+import {
+  homebrewLinterUpdates,
+  parseHomebrewOutdated,
+  parseOptions,
+  readSource,
+  runLinters,
+} from "../src/cli/index.ts";
+import { STYLEGUIDE_TOUR_CHOICES } from "../src/cli/constants.ts";
 import type { JsonObject, Options, Source } from "../src/cli/types.ts";
 
 const createFixture = (): { root: string; cleanup: () => void } => {
@@ -43,6 +50,7 @@ const options = (overrides: Partial<Options> = {}): Options =>
       linters: [],
       nativeArgs: [],
       styleguide: false,
+      update: false,
       version: false,
       verbose: false,
     },
@@ -52,8 +60,29 @@ const options = (overrides: Partial<Options> = {}): Options =>
 const source = (root: string, linters: Source["config"]["linters"]): Source => ({
   path: join(root, "legibility.json"),
   root,
-  config: { languages: {}, linters },
+  config: {
+    languages: {},
+    linters,
+    updates: { enabled: true, manager: "brew", prompt: true },
+  },
 });
+
+const homebrewPayload = {
+  formulae: [
+    {
+      name: "fs-lint",
+      installed_versions: ["0.2.1"],
+      current_version: "0.2.2",
+      pinned: false,
+    },
+    {
+      name: "src-lint",
+      installed_versions: ["0.1.0"],
+      current_version: "0.1.1",
+      pinned: true,
+    },
+  ],
+};
 
 test("parses CLI options separately from native linter arguments", () => {
   const parsed = parseOptions([
@@ -74,9 +103,54 @@ test("parses CLI options separately from native linter arguments", () => {
     linters: ["fs-lint", "src-lint"],
     nativeArgs: ["--format", "json"],
     styleguide: false,
+    update: false,
     version: false,
     verbose: false,
   });
+});
+
+test("parses the Homebrew update command", () => {
+  const parsed = parseOptions(["update", "--linter", "fs-lint"]);
+
+  assert.equal(parsed.update, true);
+  assert.deepEqual(parsed.linters, ["fs-lint"]);
+});
+
+test("includes the full setup flow in the styleguide", () => {
+  const fullFlow = STYLEGUIDE_TOUR_CHOICES.find(({ value }) => value === "full");
+
+  assert.deepEqual(fullFlow, {
+    name: "Full setup flow",
+    value: "full",
+    description: "welcome through dry-run and execution approval",
+  });
+});
+
+test("parses Homebrew outdated formula data for supported linters", () => {
+  assert.deepEqual(parseHomebrewOutdated(homebrewPayload), [
+    {
+      name: "fs-lint",
+      installedVersions: ["0.2.1"],
+      currentVersion: "0.2.2",
+      pinned: false,
+    },
+    {
+      name: "src-lint",
+      installedVersions: ["0.1.0"],
+      currentVersion: "0.1.1",
+      pinned: true,
+    },
+  ]);
+  assert.deepEqual(homebrewLinterUpdates(homebrewPayload, ["fs-lint", "src-lint"]), [
+    {
+      name: "fs-lint",
+      installedVersions: ["0.2.1"],
+      currentVersion: "0.2.2",
+      pinned: false,
+      id: "fs-lint",
+      formula: "fs-lint",
+    },
+  ]);
 });
 
 test("preserves unknown config and linter fields", (t) => {
@@ -100,6 +174,39 @@ test("preserves unknown config and linter fields", (t) => {
   assert.deepEqual(loaded.config.futureProjectField, { enabled: true });
   assert.deepEqual(loaded.config.languages.typescript.futureLanguageField, "kept");
   assert.deepEqual(loaded.config.linters["future-linter"].futureLinterField, { mode: "kept" });
+});
+
+test("defaults project updates to enabled Homebrew prompts", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const configPath = writeConfig(fixture.root, {
+    linters: { "fs-lint": { enabled: true, args: [] } },
+  });
+
+  const loaded = readSource(configPath);
+
+  assert.deepEqual(loaded.config.updates, {
+    enabled: true,
+    manager: "brew",
+    prompt: true,
+  });
+});
+
+test("preserves an explicit project update policy", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const configPath = writeConfig(fixture.root, {
+    updates: { enabled: false, manager: "brew", prompt: false },
+    linters: { "fs-lint": { enabled: true, args: [] } },
+  });
+
+  const loaded = readSource(configPath);
+
+  assert.deepEqual(loaded.config.updates, {
+    enabled: false,
+    manager: "brew",
+    prompt: false,
+  });
 });
 
 test("keeps linter IDs open in the published schema", () => {

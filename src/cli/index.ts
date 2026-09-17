@@ -8,7 +8,7 @@ import {
   readdirSync,
 } from "node:fs";
 import { basename, delimiter, dirname, extname, join, resolve } from "node:path";
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
 import {
   CONFIG_FILENAMES,
@@ -19,9 +19,11 @@ import {
   LINTER_DEFINITIONS,
   NO_SETUP_MESSAGE,
   SETUP_QUESTION,
+  STYLEGUIDE_DETECTED_LANGUAGES,
   STYLEGUIDE_LANGUAGE_CHOICES,
   STYLEGUIDE_LINTER_CHOICES,
   STYLEGUIDE_TOUR_CHOICES,
+  STYLEGUIDE_UPDATE_CHOICES,
   VERSION,
 } from "./constants.ts";
 import { logger as createLogger } from "../obs/index.ts";
@@ -42,14 +44,18 @@ import {
   promptSelect,
   promptAnsi as ANSI,
 } from "./prompts/index.ts";
+import type { PromptChoice } from "./prompts/types.ts";
 import type {
   Config,
   DetectedLanguage,
+  HomebrewLinterUpdate,
+  HomebrewOutdatedFormula,
   JsonObject,
   Linter,
   LinterDefinition,
   Options,
   Source,
+  UpdateConfig,
 } from "./types.ts";
 import type { Logger } from "../obs/types.ts";
 
@@ -97,6 +103,22 @@ const parseLanguages = (value: unknown): Record<string, JsonObject> => {
   return Object.fromEntries(entries);
 };
 
+const parseUpdates = (value: unknown): UpdateConfig => {
+  const rawUpdates = value === undefined ? {} : value;
+  if (!isObject(rawUpdates)) throw new Error("updates must be an object");
+  const enabledValue = rawUpdates.enabled;
+  const enabled = enabledValue === undefined ? true : enabledValue;
+  if (typeof enabled !== "boolean") throw new Error("updates.enabled must be a boolean");
+  const managerValue = rawUpdates.manager;
+  const hasUnsupportedManager = managerValue !== undefined && managerValue !== "brew";
+  if (hasUnsupportedManager) throw new Error('updates.manager must be "brew"');
+  const manager = "brew" as const;
+  const promptValue = rawUpdates.prompt;
+  const prompt = promptValue === undefined ? true : promptValue;
+  if (typeof prompt !== "boolean") throw new Error("updates.prompt must be a boolean");
+  return Object.assign({}, rawUpdates, { enabled, manager, prompt });
+};
+
 const parseConfig = (value: unknown): Config => {
   if (!isObject(value)) throw new Error("configuration must be an object");
   if (!isObject(value.linters)) {
@@ -109,6 +131,7 @@ const parseConfig = (value: unknown): Config => {
   return Object.assign({}, value, {
     languages: parseLanguages(value.languages),
     linters: Object.fromEntries(entries),
+    updates: parseUpdates(value.updates),
   });
 };
 
@@ -170,6 +193,15 @@ const linterNames = (value: unknown): string[] => {
   return value as string[];
 };
 
+const parseCommand = (positionals: string[]): boolean => {
+  const command = positionals[0];
+  const hasExtraPositionals = positionals.length > 1;
+  const hasUnsupportedCommand = command !== undefined && command !== "update";
+  const hasUnknownCommand = hasExtraPositionals || hasUnsupportedCommand;
+  if (hasUnknownCommand) throw new Error(`unknown command: ${positionals.join(" ")}`);
+  return command === "update";
+};
+
 export const parseOptions = (args: string[]): Options => {
   const split = nativeArguments(args);
   const parsed = parseArgs({
@@ -184,7 +216,7 @@ export const parseOptions = (args: string[]): Options => {
       verbose: { type: "boolean" },
     },
     strict: true,
-    allowPositionals: false,
+    allowPositionals: true,
   });
   return {
     configPath: parsed.values.config as string | undefined,
@@ -193,6 +225,7 @@ export const parseOptions = (args: string[]): Options => {
     linters: linterNames(parsed.values.linter),
     nativeArgs: split.nativeArgs,
     styleguide: Boolean(parsed.values.styleguide),
+    update: parseCommand(parsed.positionals),
     version: Boolean(parsed.values.version),
     verbose: Boolean(parsed.values.verbose),
   };
@@ -253,6 +286,87 @@ export const commandIsAvailable = (command: string, root: string): boolean => {
   return [projectBin].concat(commandPaths, windowsPaths).some((path) => accessPath(path));
 };
 
+const commandEnvironment = (root: string): Record<string, string> => {
+  const projectBin = join(root, "node_modules", ".bin");
+  const pathValue = process.env.PATH ?? "";
+  return Object.assign({}, process.env, {
+    PATH: [projectBin, pathValue].filter(Boolean).join(delimiter),
+  }) as Record<string, string>;
+};
+
+type HomebrewFormulaPayload = {
+  name: string;
+  installed_versions: string[];
+  current_version: string;
+  pinned: boolean;
+};
+
+const isHomebrewFormula = (value: unknown): value is HomebrewFormulaPayload => {
+  if (!isObject(value)) return false;
+  const hasName = typeof value.name === "string";
+  const hasVersions =
+    isStringArray(value.installed_versions) && value.installed_versions.length > 0;
+  const hasCurrentVersion = typeof value.current_version === "string";
+  const hasPinnedValue = typeof value.pinned === "boolean";
+  const hasValidIdentity = hasName && hasCurrentVersion;
+  const hasValidDetails = hasVersions && hasPinnedValue;
+  return hasValidIdentity && hasValidDetails;
+};
+
+export const parseHomebrewOutdated = (value: unknown): HomebrewOutdatedFormula[] => {
+  if (!isObject(value)) return [];
+  const formulae = value.formulae;
+  if (!Array.isArray(formulae)) return [];
+  return formulae.flatMap((formula) => {
+    if (!isHomebrewFormula(formula)) return [];
+    return [
+      {
+        name: formula.name,
+        installedVersions: formula.installed_versions,
+        currentVersion: formula.current_version,
+        pinned: formula.pinned,
+      },
+    ];
+  });
+};
+
+export const homebrewLinterUpdates = (value: unknown, ids: string[]): HomebrewLinterUpdate[] => {
+  const selectedIds = new Set(ids);
+  const formulas = new Map(parseHomebrewOutdated(value).map((formula) => [formula.name, formula]));
+  return LINTER_DEFINITIONS.flatMap(({ id, brewFormula }) => {
+    const isSelected = selectedIds.has(id);
+    if (brewFormula === undefined) return [];
+    if (!isSelected) return [];
+    const formula = formulas.get(brewFormula);
+    const isUpdateable = formula !== undefined && !formula.pinned;
+    if (!isUpdateable) return [];
+    return [Object.assign({}, formula, { id, formula: brewFormula })];
+  });
+};
+
+const readHomebrewOutdated = (root: string, log: Logger): unknown | undefined => {
+  const result = spawnSync("brew", ["outdated", "--json=v2", "--formula"], {
+    cwd: root,
+    encoding: "utf8",
+    env: commandEnvironment(root),
+  });
+  if (result.error) {
+    log.debug(`Could not inspect Homebrew: ${result.error.message}`, "update");
+    return undefined;
+  }
+  if (result.status !== 0) {
+    log.debug(`Homebrew outdated check exited with ${result.status ?? 1}`, "update");
+    return undefined;
+  }
+  try {
+    return JSON.parse(result.stdout) as unknown;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.debug(`Could not parse Homebrew output: ${message}`, "update");
+    return undefined;
+  }
+};
+
 const selectedLinters = (
   config: Config,
   names: string[],
@@ -273,11 +387,7 @@ const selectedLinters = (
 
 const runCommand = (command: string, args: string[], root: string, log: Logger): Promise<number> =>
   new Promise((resolveExitCode) => {
-    const projectBin = join(root, "node_modules", ".bin");
-    const pathValue = process.env.PATH ?? "";
-    const env = Object.assign({}, process.env, {
-      PATH: [projectBin, pathValue].filter(Boolean).join(delimiter),
-    }) as Record<string, string>;
+    const env = commandEnvironment(root);
     const child = spawn(command, args, { cwd: root, stdio: "inherit", env });
     child.on("error", (error: Error) => {
       log.fail(`Error: could not run ${command}: ${error.message}`);
@@ -285,6 +395,125 @@ const runCommand = (command: string, args: string[], root: string, log: Logger):
     });
     child.on("exit", (code) => resolveExitCode(code ?? 2));
   });
+
+const configuredUpdateIds = (source: Source | undefined): string[] => {
+  if (!source) return LINTER_DEFINITIONS.map(({ id }) => id);
+  return Object.entries(source.config.linters)
+    .filter(([, linter]) => linter.enabled)
+    .map(([id]) => id);
+};
+
+const updateIds = (source: Source | undefined, options: Options): string[] => {
+  const ids = options.linters.length > 0 ? options.linters : configuredUpdateIds(source);
+  const supported = new Set(LINTER_DEFINITIONS.map(({ id }) => id));
+  const unsupported = ids.filter((id) => !supported.has(id));
+  if (unsupported.length > 0) throw new Error(`linter is not supported: ${unsupported.join(", ")}`);
+  return ids;
+};
+
+const updateChoices = (updates: HomebrewLinterUpdate[]): PromptChoice[] =>
+  updates.map(({ id, installedVersions, currentVersion, formula }) => ({
+    name: id,
+    value: id,
+    description: `${installedVersions.join(", ")} → ${currentVersion} · brew upgrade ${formula}`,
+    checked: true,
+  }));
+
+const refreshHomebrew = async (
+  root: string,
+  shouldPrompt: boolean,
+  log: Logger,
+): Promise<number> => {
+  const shouldRefresh =
+    !shouldPrompt || (await promptConfirm("Refresh Homebrew formula data?", true));
+  if (!shouldRefresh) return 0;
+  return runCommand("brew", ["update"], root, log);
+};
+
+const chooseHomebrewUpdates = async (
+  updates: HomebrewLinterUpdate[],
+  shouldPrompt: boolean,
+): Promise<HomebrewLinterUpdate[]> => {
+  if (!shouldPrompt) return updates;
+  const selectedIds = await promptCheckbox(
+    "Which outdated linters should be updated?",
+    updateChoices(updates),
+  );
+  return updates.filter(({ id }) => selectedIds.includes(id));
+};
+
+const upgradeHomebrew = async (
+  root: string,
+  updates: HomebrewLinterUpdate[],
+  shouldPrompt: boolean,
+  log: Logger,
+): Promise<number> => {
+  const formulas = updates.map(({ formula }) => formula);
+  const labels = updates.map(({ id }) => id).join(", ");
+  const shouldUpgrade = !shouldPrompt || (await promptConfirm(`Update ${labels} now?`, false));
+  if (!shouldUpgrade) return 0;
+  return runCommand("brew", ["upgrade"].concat(formulas), root, log);
+};
+
+const updateHomebrewLinters = async (
+  root: string,
+  ids: string[],
+  config: UpdateConfig,
+  log: Logger,
+): Promise<number> => {
+  const refreshExit = await refreshHomebrew(root, config.prompt, log);
+  if (refreshExit !== 0) return refreshExit;
+  const output = readHomebrewOutdated(root, log);
+  if (output === undefined) {
+    log.fail("Error: could not inspect Homebrew for outdated linters");
+    return 2;
+  }
+  const updates = homebrewLinterUpdates(output, ids);
+  if (updates.length === 0) {
+    log.print("All selected Homebrew linters are up to date.");
+    return 0;
+  }
+  const selected = await chooseHomebrewUpdates(updates, config.prompt);
+  if (selected.length === 0) {
+    log.print("No linter updates selected.");
+    return 0;
+  }
+  return upgradeHomebrew(root, selected, config.prompt, log);
+};
+
+const readUpdateSource = (options: Options): Source | undefined => {
+  if (options.configPath) return readSource(resolve(process.cwd(), options.configPath));
+  return discoverConfig();
+};
+
+const runUpdate = (options: Options, log: Logger): Promise<number> | number => {
+  if (options.dryRun) {
+    throw new Error("--dry-run is not supported with update");
+  }
+  if (options.nativeArgs.length > 0) {
+    throw new Error("native arguments after -- are not supported with update");
+  }
+  const source = readUpdateSource(options);
+  const config = source?.config ?? parseConfig(undefined);
+  if (!config.updates.enabled) {
+    log.print("Project linter updates are disabled.");
+    return 0;
+  }
+  if (config.updates.manager !== "brew") {
+    throw new Error(`unsupported update manager: ${config.updates.manager}`);
+  }
+  const requiresInteractivePrompt = config.updates.prompt && !process.stdin.isTTY;
+  if (requiresInteractivePrompt) {
+    log.fail("Error: legibility update requires an interactive terminal");
+    return 2;
+  }
+  const root = source?.root ?? resolve(process.cwd());
+  if (!commandIsAvailable(config.updates.manager, root)) {
+    log.fail("Error: Homebrew is not available; install it before updating native linters");
+    return 2;
+  }
+  return updateHomebrewLinters(root, updateIds(source, options), config.updates, log);
+};
 
 const formatCommand = (command: string, args: string[]): string =>
   [command]
@@ -388,6 +617,70 @@ const runExecutionDemo = async (log: Logger): Promise<void> => {
   printDemoResult(log, "execution", answer ? "approved" : "not approved");
 };
 
+const styleguideCommandAvailable = (): boolean => true;
+
+const styleguideOptions = (linters: string[]): Options => ({
+  configPath: undefined,
+  dryRun: true,
+  help: false,
+  linters,
+  nativeArgs: [],
+  styleguide: false,
+  update: false,
+  version: false,
+  verbose: false,
+});
+
+const previewFullSetup = async (log: Logger, source: Source, linters: string[]): Promise<void> => {
+  printDemoTitle(log, "Preview commands");
+  log.print("Demo · Preview — no linters will run:");
+  await runLinters(source, styleguideOptions(linters));
+};
+
+const runFullSetupDemo = async (log: Logger): Promise<void> => {
+  printDemoTitle(log, "Full setup flow");
+  const shouldSetup = await promptConfirm("Demo · Set up Legibility for this project?", false);
+  if (!shouldSetup) {
+    printDemoResult(log, "setup", "not started");
+    return;
+  }
+  printDemoTitle(log, "Detect languages");
+  const languages = await promptForLanguages(STYLEGUIDE_DETECTED_LANGUAGES);
+  printDemoResult(log, "languages", languages.join(", ") || "none");
+  printDemoTitle(log, "Select available linters");
+  const names = await promptForLinters(languages, "styleguide", styleguideCommandAvailable);
+  const hasSelectedLinters = names !== undefined && names.length > 0;
+  if (!hasSelectedLinters) {
+    printDemoResult(log, "linters", "none selected");
+    return;
+  }
+  printDemoResult(log, "linters", names.join(", "));
+  printDemoTitle(log, "Configure native arguments");
+  const linters = await promptForLinterConfig(names);
+  const source = setupSource("styleguide", languages, linters);
+  printDemoTitle(log, "Review configuration");
+  log.print(JSON.stringify(source.config, null, 2));
+  const shouldSave = await promptConfirm(
+    "Demo · Save this configuration? (nothing is written)",
+    true,
+  );
+  printDemoResult(log, "save", shouldSave ? "approved · not written" : "skipped");
+  await previewFullSetup(log, source, names);
+  const shouldRun = await promptConfirm("Demo · Run these linters now? (never runs)", false);
+  printDemoResult(log, "execution", shouldRun ? "approved · not executed" : "not approved");
+};
+
+const runUpdateDemo = async (log: Logger): Promise<void> => {
+  printDemoTitle(log, "Update Homebrew linters");
+  const selected = await promptCheckbox(
+    "Demo · Which outdated linters should be updated?",
+    STYLEGUIDE_UPDATE_CHOICES,
+  );
+  printDemoResult(log, "linters", selected.join(", ") || "none");
+  const shouldUpdate = await promptConfirm("Demo · Approve Homebrew upgrades?", false);
+  printDemoResult(log, "updates", shouldUpdate ? "approved" : "not approved");
+};
+
 const runCancellationDemo = async (log: Logger): Promise<void> => {
   printDemoTitle(log, "Cancellation");
   try {
@@ -403,6 +696,7 @@ const runCancellationDemo = async (log: Logger): Promise<void> => {
 };
 
 const runDemo = async (selection: string, log: Logger): Promise<void> => {
+  if (selection === "full") return await runFullSetupDemo(log);
   if (selection === "welcome") return await runWelcomeDemo(log);
   if (selection === "languages") return await runLanguagesDemo(log);
   if (selection === "linters") return await runLintersDemo(log);
@@ -410,6 +704,7 @@ const runDemo = async (selection: string, log: Logger): Promise<void> => {
   if (selection === "review") return await runReviewDemo(log);
   if (selection === "preview") return await runPreviewDemo(log);
   if (selection === "execution") return await runExecutionDemo(log);
+  if (selection === "update") return await runUpdateDemo(log);
   if (selection === "cancellation") return await runCancellationDemo(log);
 };
 
@@ -467,6 +762,7 @@ const setupProject = async (log: Logger, verbose: boolean): Promise<number> => {
     linters: names,
     nativeArgs: [],
     styleguide: false,
+    update: false,
     version: false,
     verbose,
   };
@@ -525,6 +821,7 @@ export const run = async (args: string[]): Promise<number> => {
     return 0;
   }
   try {
+    if (options.update) return await runUpdate(options, log);
     const source = options.configPath
       ? readSource(resolve(process.cwd(), options.configPath))
       : discoverConfig();

@@ -13,6 +13,7 @@
   "scripts": {
     "build": "node --experimental-strip-types ./bin/legibility --help",
     "build:native": "node --experimental-strip-types ./scripts/build/index.ts",
+    "build:native:release": "node --experimental-strip-types ./scripts/build/index.ts --release",
     "format": "oxfmt --check .",
     "format:fix": "oxfmt --write .",
     "lint": "oxlint src --deny-warnings",

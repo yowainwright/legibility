@@ -11,6 +11,25 @@ export type LinterDefinition = {
   kind: "hosted" | "standalone";
   description: string;
   languages: readonly string[];
+  brewFormula?: string;
+};
+
+export type HomebrewOutdatedFormula = {
+  name: string;
+  installedVersions: string[];
+  currentVersion: string;
+  pinned: boolean;
+};
+
+export type HomebrewLinterUpdate = HomebrewOutdatedFormula & {
+  id: string;
+  formula: string;
+};
+
+export type UpdateConfig = JsonObject & {
+  enabled: boolean;
+  manager: "brew";
+  prompt: boolean;
 };
 
 export type DetectedLanguage = {
@@ -23,6 +42,7 @@ export type DetectedLanguage = {
 export type Config = JsonObject & {
   linters: Record<string, Linter>;
   languages: Record<string, JsonObject>;
+  updates: UpdateConfig;
 };
 
 export type Source = {
@@ -40,6 +60,7 @@ export type Options = {
   linters: string[];
   nativeArgs: string[];
   styleguide: boolean;
+  update: boolean;
   version: boolean;
   verbose: boolean;
 };

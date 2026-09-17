@@ -91,14 +91,24 @@ export const setupSource = (
   root: string,
   languages: string[],
   linters: Record<string, Linter>,
-): Source => ({
-  path: "interactive",
-  root,
-  config: {
-    languages: Object.fromEntries(languages.map((language) => [language, {} as JsonObject])),
-    linters,
-  },
-});
+): Source => {
+  const configuredLanguages = Object.fromEntries(
+    languages.map((language) => [language, {} as JsonObject]),
+  );
+  return {
+    path: "interactive",
+    root,
+    config: {
+      languages: configuredLanguages,
+      linters,
+      updates: {
+        enabled: true,
+        manager: "brew",
+        prompt: true,
+      },
+    },
+  };
+};
 
 export const saveSetupSource = (source: Source): string => {
   const path = join(source.root, "legibility.json");
@@ -116,6 +126,10 @@ const reviewLines = (): string[] => [
   "    oxlint-plugin-legibility:",
   "      enabled: true",
   "      args: []",
+  "  updates:",
+  "    enabled: true",
+  "    manager: brew",
+  "    prompt: true",
 ];
 
 const commandLines = (): string[] => [
