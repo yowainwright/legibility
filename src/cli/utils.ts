@@ -79,12 +79,12 @@ const parseNativeArgs = (answer: string): string[] => {
 };
 
 export const promptForLinterConfig = async (names: string[]): Promise<Record<string, Linter>> => {
-  const name = names[0];
-  if (!name) return {};
-  const answer = await promptInput(`Arguments for ${name} (optional)`);
-  const linter = { enabled: true, args: parseNativeArgs(answer) };
-  const remaining = await promptForLinterConfig(names.slice(1));
-  return Object.assign({ [name]: linter }, remaining);
+  const linters: Record<string, Linter> = {};
+  for (const name of names) {
+    const answer = await promptInput(`Arguments for ${name} (optional)`);
+    linters[name] = { enabled: true, args: parseNativeArgs(answer) };
+  }
+  return linters;
 };
 
 export const setupSource = (

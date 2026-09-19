@@ -9,6 +9,7 @@ import {
   BIN_RUNTIME_DIR,
   BIN_RUNTIME_ENTRY_FILE,
   BIN_RUNTIME_PACKAGE_FILE,
+  BIN_RUNTIME_TYPES_FILE,
   BUILD_SCRIPT_LABEL,
   NATIVE_RELEASE_FLAG,
   RUNTIME_PACKAGE_NAME,
@@ -24,10 +25,67 @@ const runBuildCommand = (command: string, args: readonly string[]): void =>
 
 const renderRuntimeEntry = (): string =>
   [
-    'import { run } from "../src/cli/index.ts";',
+    'import { runWithPrompt } from "../src/cli/index.ts";',
+    "",
+    "export { runWithPrompt };",
+    "",
+  ].join("\n");
+
+const renderPromptLine = (): string =>
+  [
+    "const promptLine = (message: string): Promise<string> =>",
+    "  new Promise((resolve) => {",
+    "    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });",
+    "    rl.question(message, (answer) => {",
+    "      rl.close();",
+    "      resolve(answer);",
+    "    });",
+    "  });",
+  ].join("\n");
+
+const renderPromptKey = (): string =>
+  [
+    "",
+    "const readKey = (): Promise<string> =>",
+    "  new Promise((resolve) => {",
+    "    process.stdin.setRawMode(true);",
+    '    process.stdin.once("data", (chunk: Uint8Array) => {',
+    "      process.stdin.setRawMode(false);",
+    "      resolve(new TextDecoder().decode(chunk));",
+    "    });",
+    "  });",
+  ].join("\n");
+
+const renderCommandRunner = (): string =>
+  [
+    "",
+    "const runCommand = (command: string, args: string[], root: string): Promise<number> =>",
+    "  new Promise((resolve) => {",
+    '    const localCommand = join(root, "node_modules", ".bin", command);',
+    "    const executable = existsSync(localCommand) ? localCommand : command;",
+    '    const child = spawn(executable, args, { cwd: root, stdio: "inherit" });',
+    '    child.on("error", (error: Error) => {',
+    "      process.stderr.write(`Error: could not run ${command}: ${error.message}\\n`);",
+    "      resolve(2);",
+    "    });",
+    '    child.on("exit", (code) => resolve(code ?? 2));',
+    "  });",
+  ].join("\n");
+
+const renderBinaryEntry = (): string =>
+  [
+    'import { runWithPrompt } from "legibility-runtime";',
+    'import { existsSync } from "node:fs";',
+    'import { spawn } from "node:child_process";',
+    'import * as readline from "node:readline";',
+    'import { join } from "node:path";',
+    "",
+    renderPromptLine(),
+    renderPromptKey(),
+    renderCommandRunner(),
     "",
     "const main = async (): Promise<void> => {",
-    "  const exitCode = await run(process.argv.slice(2));",
+    "  const exitCode = await runWithPrompt(process.argv.slice(2), promptLine, runCommand, readKey);",
     "  process.exit(exitCode);",
     "};",
     "",
@@ -35,23 +93,32 @@ const renderRuntimeEntry = (): string =>
     "",
   ].join("\n");
 
-const renderBinaryEntry = (): string => 'import "legibility-runtime";\n';
-
 const renderRuntimePackage = (): string => {
   const manifest: RuntimePackageManifest = {
     main: "index.js",
     name: RUNTIME_PACKAGE_NAME,
     type: "commonjs",
+    types: "index.d.ts",
     version: packageJson.version,
   };
   return JSON.stringify(manifest);
 };
+
+const renderRuntimeTypes = (): string =>
+  [
+    "export type PromptLine = (message: string) => Promise<string>;",
+    "export type PromptKeyReader = () => Promise<string>;",
+    "export type CommandRunner = (command: string, args: string[], root: string) => Promise<number>;",
+    "export declare function runWithPrompt(args: string[], promptLine: PromptLine, commandRunner?: CommandRunner, promptKey?: PromptKeyReader): Promise<number>;",
+    "",
+  ].join("\n");
 
 const writeBinarySources = (): void => {
   mkdirSync(BIN_RUNTIME_DIR, { recursive: true });
   writeFileSync(BIN_ENTRY_FILE, renderBinaryEntry());
   writeFileSync(BIN_RUNTIME_ENTRY_FILE, renderRuntimeEntry());
   writeFileSync(BIN_RUNTIME_PACKAGE_FILE, renderRuntimePackage());
+  writeFileSync(BIN_RUNTIME_TYPES_FILE, renderRuntimeTypes());
 };
 
 const bundleRuntime = (): void => {

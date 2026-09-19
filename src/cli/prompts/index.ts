@@ -14,9 +14,22 @@ const RADIO_UNSELECTED_MARK = "○";
 const DISABLED_MARK = "─";
 
 export type { PromptChoice } from "./types.ts";
+export type PromptLine = (message: string) => Promise<string>;
+export type PromptKeyReader = () => Promise<string>;
 
 type PromptKey = { name?: string; ctrl?: boolean };
 type SelectorMode = "multi" | "radio";
+
+let nativePromptLine: PromptLine | undefined;
+let nativePromptKey: PromptKeyReader | undefined;
+
+export const setPromptLine = (
+  promptLine: PromptLine | undefined,
+  promptKey?: PromptKeyReader,
+): void => {
+  nativePromptLine = promptLine;
+  nativePromptKey = promptKey;
+};
 
 type SelectorState = {
   cursorIndex: number;
@@ -277,6 +290,10 @@ const renderSelector = (runtime: SelectorRuntime): void => {
 };
 
 const cleanupSelector = (handlers: SelectorHandlers): void => {
+  if (nativePromptKey) {
+    process.stdout.write(ANSI.SHOW_CURSOR);
+    return;
+  }
   process.stdin.off("keypress", handlers.onKeypress);
   process.stdin.off("data", handlers.onData);
   if (typeof process.stdin.setRawMode === "function") process.stdin.setRawMode(false);
@@ -388,12 +405,79 @@ const setupSelector = (
   }
 };
 
+const nativeKey = (input: string): PromptKey => {
+  const firstCode = input.charCodeAt(0);
+  const secondCode = input.charCodeAt(1);
+  const thirdCode = input.charCodeAt(2);
+  const isEscapeSequence = firstCode === 27 && secondCode === 91;
+  const isUp = isEscapeSequence && thirdCode === 65;
+  const isDown = isEscapeSequence && thirdCode === 66;
+  const isEscape = firstCode === 27;
+  const isCtrlC = firstCode === 3;
+  const isEnter = firstCode === 13 || firstCode === 10;
+  const isSpace = firstCode === 32;
+  if (isUp) return { name: "up" };
+  if (isDown) return { name: "down" };
+  if (isEscape) return { name: "escape" };
+  if (isCtrlC) return { name: "c", ctrl: true };
+  if (isEnter) return { name: "enter" };
+  if (isSpace) return { name: "space" };
+  return { name: input.charAt(0) };
+};
+
+const handleNativeSelectorKey = (
+  runtime: SelectorRuntime,
+  input: string,
+  finish: SelectorFinish,
+  render: () => void,
+): void => {
+  const key = nativeKey(input);
+  const isSpace = key.name === "space";
+  if (isSpace) {
+    Object.assign(runtime.state, updateSelected(runtime.state, " ", key, runtime.choices));
+    render();
+    return;
+  }
+  handleSelectorKeypress({ runtime, input, key, finish, render });
+};
+
+const runNativeSelector = (
+  message: string,
+  choices: PromptChoice[],
+  mode: SelectorMode,
+): Promise<string[]> => {
+  const promptKey = nativePromptKey;
+  if (!promptKey) return Promise.reject(new Error("Native prompt input is unavailable"));
+  return new Promise((resolve, reject) => {
+    const runtime: SelectorRuntime = {
+      message,
+      choices,
+      mode,
+      state: createSelectorState(choices),
+      previousLineCount: 0,
+      isFinished: false,
+    };
+    const render = (): void => renderSelector(runtime);
+    const handlers: SelectorHandlers = { onKeypress: () => undefined, onData: () => undefined };
+    const finish = (error?: Error): void =>
+      finishSelector({ runtime, handlers, error, resolve, reject });
+    const readNext = async (): Promise<void> => {
+      const input = await promptKey();
+      handleNativeSelectorKey(runtime, input, finish, render);
+      if (!runtime.isFinished) await readNext();
+    };
+    render();
+    void readNext().catch(reject);
+  });
+};
+
 const runSelector = (
   message: string,
   choices: PromptChoice[],
   mode: SelectorMode,
 ): Promise<string[]> => {
   if (choices.length === 0) return Promise.reject(new Error("Prompt requires at least one choice"));
+  if (nativePromptKey) return runNativeSelector(message, choices, mode);
   return new Promise((resolve, reject) => {
     const runtime: SelectorRuntime = {
       message,
@@ -412,13 +496,15 @@ const runSelector = (
 };
 
 const askLine = (message: string): Promise<string> =>
-  new Promise((resolve) => {
-    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    rl.question(message, (answer) => {
-      rl.close();
-      resolve(answer);
-    });
-  });
+  nativePromptLine
+    ? nativePromptLine(message)
+    : new Promise((resolve) => {
+        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+        rl.question(message, (answer) => {
+          rl.close();
+          resolve(answer);
+        });
+      });
 
 const parseSelectedChoices = (answer: string, choices: PromptChoice[]): string[] => {
   const numbers = answer
@@ -443,11 +529,15 @@ const numberedSelect = async (message: string, choices: PromptChoice[]): Promise
 };
 
 const selectChoices = (message: string, choices: PromptChoice[]): Promise<string[]> => {
+  if (nativePromptKey) return runSelector(message, choices, "multi");
+  if (nativePromptLine) return numberedSelect(message, choices);
   if (hasInteractiveTerminal()) return runSelector(message, choices, "multi");
   return numberedSelect(message, choices);
 };
 
 export const promptSelect = async (message: string, choices: PromptChoice[]): Promise<string> => {
+  if (nativePromptKey) return (await runSelector(message, choices, "radio"))[0] ?? "";
+  if (nativePromptLine) return (await numberedSelect(message, choices))[0] ?? "";
   if (!hasInteractiveTerminal()) return (await numberedSelect(message, choices))[0] ?? "";
   const selected = await runSelector(message, choices, "radio");
   return selected[0] ?? "";

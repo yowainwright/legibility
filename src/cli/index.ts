@@ -43,8 +43,10 @@ import {
   promptInput,
   promptSelect,
   promptAnsi as ANSI,
+  setPromptLine,
 } from "./prompts/index.ts";
 import type { PromptChoice } from "./prompts/types.ts";
+import type { PromptKeyReader, PromptLine } from "./prompts/index.ts";
 import type {
   Config,
   DetectedLanguage,
@@ -58,6 +60,14 @@ import type {
   UpdateConfig,
 } from "./types.ts";
 import type { Logger } from "../obs/types.ts";
+
+export type CommandRunner = (command: string, args: string[], root: string) => Promise<number>;
+
+let nativeCommandRunner: CommandRunner | undefined;
+
+const setCommandRunner = (commandRunner: CommandRunner | undefined): void => {
+  nativeCommandRunner = commandRunner;
+};
 
 const isObject = (value: unknown): value is JsonObject => {
   if (typeof value !== "object") return false;
@@ -385,8 +395,14 @@ const selectedLinters = (
   return enabled;
 };
 
-const runCommand = (command: string, args: string[], root: string, log: Logger): Promise<number> =>
-  new Promise((resolveExitCode) => {
+const runCommand = (
+  command: string,
+  args: string[],
+  root: string,
+  log: Logger,
+): Promise<number> => {
+  if (nativeCommandRunner) return nativeCommandRunner(command, args, root);
+  return new Promise((resolveExitCode) => {
     const env = commandEnvironment(root);
     const child = spawn(command, args, { cwd: root, stdio: "inherit", env });
     child.on("error", (error: Error) => {
@@ -395,6 +411,7 @@ const runCommand = (command: string, args: string[], root: string, log: Logger):
     });
     child.on("exit", (code) => resolveExitCode(code ?? 2));
   });
+};
 
 const configuredUpdateIds = (source: Source | undefined): string[] => {
   if (!source) return LINTER_DEFINITIONS.map(({ id }) => id);
@@ -830,5 +847,21 @@ export const run = async (args: string[]): Promise<number> => {
   } catch (error: unknown) {
     log.fail(`Error: ${error instanceof Error ? error.message : String(error)}`);
     return 2;
+  }
+};
+
+export const runWithPrompt = async (
+  args: string[],
+  promptLine: PromptLine,
+  commandRunner?: CommandRunner,
+  promptKey?: PromptKeyReader,
+): Promise<number> => {
+  setPromptLine(promptLine, promptKey);
+  setCommandRunner(commandRunner);
+  try {
+    return await run(args);
+  } finally {
+    setPromptLine(undefined);
+    setCommandRunner(undefined);
   }
 };
