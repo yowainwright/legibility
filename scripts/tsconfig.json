@@ -1,8 +1,8 @@
 {
   "compilerOptions": {
     "allowImportingTsExtensions": true,
-    "outDir": "./dist",
-    "rootDir": "src",
+    "outDir": "../dist",
+    "rootDir": "../src",
     "allowJs": false,
     "allowSyntheticDefaultImports": true,
     "declaration": true,
@@ -23,6 +23,6 @@
     "target": "esnext",
     "types": ["node"]
   },
-  "include": ["src"],
-  "exclude": ["dist", "tests", "node_modules"]
+  "include": ["../src"],
+  "exclude": ["../dist", "../tests", "../node_modules"]
 }
