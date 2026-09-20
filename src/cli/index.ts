@@ -46,10 +46,12 @@ import {
   setPromptLine,
 } from "./prompts/index.ts";
 import type { PromptChoice } from "./prompts/types.ts";
-import type { PromptKeyReader, PromptLine } from "./prompts/index.ts";
+import type { PromptKeyReader, PromptLine } from "./prompts/types.ts";
 import type {
   Config,
+  CommandRunner,
   DetectedLanguage,
+  HomebrewFormulaPayload,
   HomebrewLinterUpdate,
   HomebrewOutdatedFormula,
   JsonObject,
@@ -61,7 +63,7 @@ import type {
 } from "./types.ts";
 import type { Logger } from "../obs/types.ts";
 
-export type CommandRunner = (command: string, args: string[], root: string) => Promise<number>;
+export type { CommandRunner } from "./types.ts";
 
 let nativeCommandRunner: CommandRunner | undefined;
 
@@ -302,13 +304,6 @@ const commandEnvironment = (root: string): Record<string, string> => {
   return Object.assign({}, process.env, {
     PATH: [projectBin, pathValue].filter(Boolean).join(delimiter),
   }) as Record<string, string>;
-};
-
-type HomebrewFormulaPayload = {
-  name: string;
-  installed_versions: string[];
-  current_version: string;
-  pinned: boolean;
 };
 
 const isHomebrewFormula = (value: unknown): value is HomebrewFormulaPayload => {

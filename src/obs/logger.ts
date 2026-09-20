@@ -1,4 +1,4 @@
-import { LOG_INDENT } from "./types.ts";
+import { LOG_INDENT } from "./constants.ts";
 import type { DebugLogFunc, Logger, LoggerOptions } from "./types.ts";
 
 const LOG_PREFIX = "Legibility:";

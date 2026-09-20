@@ -53,6 +53,15 @@ export type Source = {
 
 export type CommandAvailability = (command: string, root: string) => boolean;
 
+export type CommandRunner = (command: string, args: string[], root: string) => Promise<number>;
+
+export type HomebrewFormulaPayload = {
+  name: string;
+  installed_versions: string[];
+  current_version: string;
+  pinned: boolean;
+};
+
 export type Options = {
   configPath?: string;
   dryRun: boolean;

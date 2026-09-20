@@ -1,24 +1,32 @@
 import * as readline from "node:readline";
 import { logger as createLogger } from "../../obs/index.ts";
 import { ANSI } from "../constants.ts";
-import type { PromptChoice } from "./types.ts";
+import {
+  CHECKED_MARK,
+  DISABLED_MARK,
+  RADIO_SELECTED_MARK,
+  RADIO_UNSELECTED_MARK,
+  SELECTOR_CURSOR,
+  SELECTOR_VIEWPORT_SIZE,
+  UNCHECKED_MARK,
+} from "./constants.ts";
+import type {
+  ChoiceFrame,
+  ChoiceFrameOptions,
+  PromptChoice,
+  PromptKey,
+  PromptKeyReader,
+  PromptLine,
+  SelectorFinish,
+  SelectorHandlers,
+  SelectorMode,
+  SelectorRuntime,
+  SelectorState,
+} from "./types.ts";
 
 const log = createLogger({ file: "prompts/index.ts" });
 
-const SELECTOR_VIEWPORT_SIZE = 8;
-const SELECTOR_CURSOR = "›";
-const CHECKED_MARK = "■";
-const UNCHECKED_MARK = "□";
-const RADIO_SELECTED_MARK = "●";
-const RADIO_UNSELECTED_MARK = "○";
-const DISABLED_MARK = "─";
-
-export type { PromptChoice } from "./types.ts";
-export type PromptLine = (message: string) => Promise<string>;
-export type PromptKeyReader = () => Promise<string>;
-
-type PromptKey = { name?: string; ctrl?: boolean };
-type SelectorMode = "multi" | "radio";
+export type { ChoiceFrameOptions, PromptChoice, PromptKeyReader, PromptLine } from "./types.ts";
 
 let nativePromptLine: PromptLine | undefined;
 let nativePromptKey: PromptKeyReader | undefined;
@@ -29,17 +37,6 @@ export const setPromptLine = (
 ): void => {
   nativePromptLine = promptLine;
   nativePromptKey = promptKey;
-};
-
-type SelectorState = {
-  cursorIndex: number;
-  selected: boolean[];
-  viewportStart: number;
-};
-
-export type ChoiceFrameOptions = {
-  cursorIndex?: number;
-  footer?: string;
 };
 
 const isDisabled = (choice: PromptChoice): boolean => Boolean(choice.disabled);
@@ -114,14 +111,6 @@ const updateViewportStart = (
     return Math.min(maxStart, nextStart);
   }
   return viewportStart;
-};
-
-type ChoiceFrame = {
-  message: string;
-  choices: PromptChoice[];
-  state: SelectorState;
-  mode: SelectorMode;
-  footer?: string;
 };
 
 const formatChoiceFrame = ({ message, choices, state, mode, footer }: ChoiceFrame): string[] => {
@@ -252,22 +241,6 @@ const promptCancelled = (): Error => {
   error.name = "PromptCancelled";
   return error;
 };
-
-type SelectorRuntime = {
-  message: string;
-  choices: PromptChoice[];
-  mode: SelectorMode;
-  state: SelectorState;
-  previousLineCount: number;
-  isFinished: boolean;
-};
-
-type SelectorHandlers = {
-  onKeypress: (input: string | undefined, key?: PromptKey) => void;
-  onData: (chunk: Buffer) => void;
-};
-
-type SelectorFinish = (error?: Error) => void;
 
 const createSelectorState = (choices: PromptChoice[]): SelectorState => ({
   cursorIndex: firstSelectableIndex(choices),
