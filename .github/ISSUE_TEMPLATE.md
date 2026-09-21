@@ -1,7 +1,7 @@
-## Requested Update
+## Request
 
-## Why Is This Update Needed?
+## Context
 
-## Are There Examples Of This Requested Update Elsewhere?
+## References
 
-> Read about referenced issues [here](https://help.github.com/articles/closing-issues-using-keywords/). Provide paragraph text responses to each header.
+<!-- Add related issues, examples, or links. -->

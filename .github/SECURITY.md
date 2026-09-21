@@ -1,33 +1,11 @@
-# Security Policy
+# Security
 
-## Supported Versions
+Do not open a public issue for a vulnerability.
 
-Legibility is still iterating toward a stable v1 release. Security fixes are
-prioritized for the latest published release line.
+Use [GitHub private vulnerability reporting][report] or email the maintainer
+listed in `package.json`.
 
-| Version | Supported          |
-| ------- | ------------------ |
-| Latest  | :white_check_mark: |
+Include the affected version or commit, platform or native target, reproduction
+steps, and impact. Reports are acknowledged within 7 days and handled privately.
 
-## Reporting a Vulnerability
-
-Please do not open a public issue for suspected vulnerabilities.
-
-Use GitHub's private vulnerability reporting if it is available for this
-repository:
-
-<https://github.com/yowainwright/legibility/security/advisories/new>
-
-If private reporting is not available, email the maintainer listed in
-`package.json`.
-
-Please include:
-
-- Affected Legibility version or commit SHA
-- Operating system, Node.js version, or native binary target, if relevant
-- Minimal reproduction steps or a proof of concept
-- Impact, including whether project files, commands, or generated assets are affected
-
-You should receive an acknowledgement within 7 days. Valid reports are triaged
-privately, fixed on the supported release line, and disclosed through a GitHub
-Security Advisory when appropriate.
+[report]: https://github.com/yowainwright/legibility/security/advisories/new

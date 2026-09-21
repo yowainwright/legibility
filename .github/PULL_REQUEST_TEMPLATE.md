@@ -1,11 +1,13 @@
-## Fixes
+## What changed?
 
-- Fixes #
+## Why?
 
-## Proposed Changes
+## Checks
 
-- Change
+- [ ] `pnpm run check`
+- [ ] `pnpm run test`
+- [ ] `pnpm run test:e2e`
 
----
+## Related issue
 
-> Read about referenced issues [here](https://help.github.com/articles/closing-issues-using-keywords/). Replace words with this Pull Request's context.
+Fixes #

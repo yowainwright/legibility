@@ -11,7 +11,8 @@ appearance, race, religion, or sexual identity and orientation.
 
 ## Our Standards
 
-Examples of behavior that contributes to a positive environment include:
+Examples of behavior that contributes to creating a positive environment
+include:
 
 - Using welcoming and inclusive language
 - Being respectful of differing viewpoints and experiences
@@ -48,13 +49,13 @@ This Code of Conduct applies both within project spaces and in public spaces
 when an individual is representing the project or its community. Examples of
 representing a project or community include using an official project e-mail
 address, posting via an official social media account, or acting as an appointed
-representative at an online or offline event. Representation of a project may
-be further defined and clarified by project maintainers.
+representative at an online or offline event. Representation of a project may be
+further defined and clarified by project maintainers.
 
 ## Enforcement
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be
-reported by contacting the project maintainer at yowainwright@gmail.com. All
+reported by contacting the project team at paul@spaceyak.com. All
 complaints will be reviewed and investigated and will result in a response that
 is deemed necessary and appropriate to the circumstances. The project team is
 obligated to maintain confidentiality with regard to the reporter of an incident.
