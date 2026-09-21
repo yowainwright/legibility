@@ -1,4 +1,4 @@
-import { mkdirSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import packageJson from "../../package.json" with { type: "json" };
 import { logger as createLogger } from "../../src/obs/index.ts";
 import {
@@ -11,6 +11,9 @@ import {
   BIN_RUNTIME_PACKAGE_FILE,
   BIN_RUNTIME_TYPES_FILE,
   BUILD_SCRIPT_LABEL,
+  CLI_ENTRY_FILE,
+  CLI_ONLY_FLAG,
+  CLI_OUTPUT_DIR,
   NATIVE_RELEASE_FLAG,
   RUNTIME_PACKAGE_NAME,
   nativeReleaseOutputFile,
@@ -28,6 +31,17 @@ const renderRuntimeEntry = (): string =>
     'import { runWithPrompt } from "../src/cli/index.ts";',
     "",
     "export { runWithPrompt };",
+    "",
+  ].join("\n");
+
+const renderCliEntry = (): string =>
+  [
+    "#!/usr/bin/env node",
+    "",
+    'import { run } from "../src/cli/index.ts";',
+    "",
+    "const exitCode = await run(process.argv.slice(2));",
+    "process.exit(exitCode);",
     "",
   ].join("\n");
 
@@ -121,6 +135,12 @@ const writeBinarySources = (): void => {
   writeFileSync(BIN_RUNTIME_TYPES_FILE, renderRuntimeTypes());
 };
 
+const writeCliEntry = (): void => {
+  mkdirSync(CLI_OUTPUT_DIR, { recursive: true });
+  writeFileSync(CLI_ENTRY_FILE, renderCliEntry());
+  chmodSync(CLI_ENTRY_FILE, 0o755);
+};
+
 const bundleRuntime = (): void => {
   runBuildCommand("rolldown", [
     BIN_RUNTIME_ENTRY_FILE,
@@ -152,7 +172,10 @@ const printBinarySize = (outputFile: string): void => {
 };
 
 const buildBinary = (): void => {
-  const isReleaseBuild = process.argv.includes(NATIVE_RELEASE_FLAG);
+  const buildArguments = new Set(process.argv.slice(2));
+  writeCliEntry();
+  if (buildArguments.has(CLI_ONLY_FLAG)) return;
+  const isReleaseBuild = buildArguments.has(NATIVE_RELEASE_FLAG);
   const outputFile = isReleaseBuild ? nativeReleaseOutputFile() : BIN_OUTPUT_FILE;
   writeBinarySources();
   bundleRuntime();

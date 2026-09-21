@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import {
   chmodSync,
   existsSync,
@@ -114,6 +115,21 @@ test("preserves an explicit project update policy", (t) => {
     manager: "brew",
     prompt: false,
   });
+});
+
+test("handles update without a project configuration", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const cliPath = join(process.cwd(), "bin", "legibility");
+  const result = spawnSync(process.execPath, ["--experimental-strip-types", cliPath, "update"], {
+    cwd: fixture.root,
+    encoding: "utf8",
+  });
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+
+  assert.equal(result.status, 2);
+  assert.match(output, /legibility update requires an interactive terminal/);
+  assert.doesNotMatch(output, /configuration must be an object/);
 });
 
 test("runs a configured linter from the project bin and returns its exit code", async (t) => {

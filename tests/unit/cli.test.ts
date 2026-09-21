@@ -4,6 +4,7 @@ import test from "node:test";
 import { join } from "node:path";
 import { homebrewLinterUpdates, parseHomebrewOutdated, parseOptions } from "../../src/cli/index.ts";
 import { STYLEGUIDE_TOUR_CHOICES } from "../../src/cli/constants.ts";
+import { promptCheckbox, setPromptLine } from "../../src/cli/prompts/index.ts";
 import type { JsonObject } from "../../src/cli/types.ts";
 
 const homebrewPayload = {
@@ -101,4 +102,18 @@ test("keeps linter IDs open in the published schema", () => {
 
   assert.equal(schema.additionalProperties, true);
   assert.equal(linters.propertyNames, undefined);
+});
+
+test("does not select disabled choices in an interactive checkbox", async (t) => {
+  setPromptLine(
+    () => Promise.resolve(""),
+    () => Promise.resolve(" "),
+  );
+  t.after(() => setPromptLine(undefined));
+
+  const selected = await promptCheckbox("Choose a disabled option", [
+    { name: "Unavailable", value: "unavailable", disabled: "not installed" },
+  ]);
+
+  assert.deepEqual(selected, []);
 });

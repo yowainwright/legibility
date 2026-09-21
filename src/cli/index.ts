@@ -506,7 +506,7 @@ const runUpdate = (options: Options, log: Logger): Promise<number> | number => {
     throw new Error("native arguments after -- are not supported with update");
   }
   const source = readUpdateSource(options);
-  const config = source?.config ?? parseConfig(undefined);
+  const config = source?.config ?? parseConfig({ linters: {} });
   if (!config.updates.enabled) {
     log.print("Project linter updates are disabled.");
     return 0;
@@ -733,7 +733,8 @@ export const runStyleguide = async (log: Logger): Promise<number> => {
       const selected = await promptSelect("Choose a flow to exercise", STYLEGUIDE_TOUR_CHOICES);
       if (selected === "exit") return 0;
       await runDemo(selected, log);
-      await promptConfirm("Return to the styleguide menu?", true);
+      const shouldReturnToMenu = await promptConfirm("Return to the styleguide menu?", true);
+      if (!shouldReturnToMenu) return 0;
     } catch (error: unknown) {
       const wasCancelled = error instanceof Error && error.name === "PromptCancelled";
       if (!wasCancelled) throw error;
@@ -811,6 +812,11 @@ const promptForSetup = async (options: Options): Promise<number> => {
   }
 };
 
+const readRunSource = (options: Options): Source | undefined => {
+  if (options.configPath) return readSource(resolve(process.cwd(), options.configPath));
+  return discoverConfig();
+};
+
 export { formatStyleguide, promptForSetup };
 
 export const run = async (args: string[]): Promise<number> => {
@@ -834,9 +840,7 @@ export const run = async (args: string[]): Promise<number> => {
   }
   try {
     if (options.update) return await runUpdate(options, log);
-    const source = options.configPath
-      ? readSource(resolve(process.cwd(), options.configPath))
-      : discoverConfig();
+    const source = readRunSource(options);
     if (!source) return promptForSetup(options);
     return await runLinters(source, options);
   } catch (error: unknown) {

@@ -90,7 +90,12 @@ const selectedSummary = (
 const selectorFooter = (state: SelectorState, choiceCount: number, mode: SelectorMode): string => {
   const hasPrevious = state.viewportStart > 0;
   const hasNext = state.viewportStart + SELECTOR_VIEWPORT_SIZE < choiceCount;
-  const scrollHint = [hasPrevious ? "↑ more" : "", hasNext ? "↓ more" : ""].filter(Boolean);
+  const scrollHint = [
+    { label: "↑ more", visible: hasPrevious },
+    { label: "↓ more", visible: hasNext },
+  ]
+    .filter(({ visible }) => visible)
+    .map(({ label }) => label);
   const instructions =
     mode === "radio"
       ? "↑/↓ navigate · Enter select · Esc cancel"
@@ -450,6 +455,8 @@ const runSelector = (
   mode: SelectorMode,
 ): Promise<string[]> => {
   if (choices.length === 0) return Promise.reject(new Error("Prompt requires at least one choice"));
+  const hasSelectableChoice = choices.some((choice) => !isDisabled(choice));
+  if (!hasSelectableChoice) return Promise.resolve([]);
   if (nativePromptKey) return runNativeSelector(message, choices, mode);
   return new Promise((resolve, reject) => {
     const runtime: SelectorRuntime = {

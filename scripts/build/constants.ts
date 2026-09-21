@@ -1,4 +1,7 @@
 export const BUILD_SCRIPT_LABEL = "scripts/build/index.ts";
+export const CLI_OUTPUT_DIR = "bin";
+export const CLI_ENTRY_FILE = "bin/legibility";
+export const CLI_ONLY_FLAG = "--cli-only";
 export const BIN_OUTPUT_DIR = "artifacts";
 export const BIN_OUTPUT_FILE = `${BIN_OUTPUT_DIR}/legibility`;
 export const NATIVE_RELEASE_FLAG = "--release";

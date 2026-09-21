@@ -6,12 +6,13 @@
     "legibility": "./bin/legibility"
   },
   "files": [
+    "bin/legibility",
     "skills",
     "src"
   ],
   "type": "module",
   "scripts": {
-    "build": "node --experimental-strip-types ./bin/legibility --help",
+    "build": "node --experimental-strip-types ./scripts/build/index.ts --cli-only && node --experimental-strip-types ./bin/legibility --help",
     "build:native": "node --experimental-strip-types ./scripts/build/index.ts",
     "build:native:release": "node --experimental-strip-types ./scripts/build/index.ts --release",
     "format": "oxfmt --config scripts/oxfmtrc.json --check .",
@@ -21,7 +22,7 @@
     "test": "node --test",
     "test:native": "pnpm run build:native:release && LEGIBILITY_NATIVE_E2E=1 node --test tests/e2e/native-cli.test.ts",
     "hooks:setup": "sh scripts/setup.sh",
-    "prepare": "sh scripts/setup.sh",
+    "prepare": "sh scripts/setup.sh && pnpm run build",
     "setup": "pnpm install && sh scripts/setup.sh && pnpm run build",
     "deps:check": "codependence --files package.json",
     "deps:security": "pastoralist --dry-run --checkSecurity --summary -d package.json"
