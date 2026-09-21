@@ -120,7 +120,7 @@ test("preserves an explicit project update policy", (t) => {
 test("handles update without a project configuration", (t) => {
   const fixture = createFixture();
   t.after(fixture.cleanup);
-  const cliPath = join(process.cwd(), "bin", "legibility");
+  const cliPath = join(process.cwd(), "bin", "js", "legibility");
   const result = spawnSync(process.execPath, ["--experimental-strip-types", cliPath, "update"], {
     cwd: fixture.root,
     encoding: "utf8",

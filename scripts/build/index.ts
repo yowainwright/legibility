@@ -28,7 +28,7 @@ const runBuildCommand = (command: string, args: readonly string[]): void =>
 
 const renderRuntimeEntry = (): string =>
   [
-    'import { runWithPrompt } from "../src/cli/index.ts";',
+    'import { runWithPrompt } from "../../src/cli/index.ts";',
     "",
     "export { runWithPrompt };",
     "",
@@ -38,7 +38,7 @@ const renderCliEntry = (): string =>
   [
     "#!/usr/bin/env node",
     "",
-    'import { run } from "../src/cli/index.ts";',
+    'import { run } from "../../src/cli/index.ts";',
     "",
     "const exitCode = await run(process.argv.slice(2));",
     "process.exit(exitCode);",

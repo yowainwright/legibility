@@ -1,7 +1,8 @@
+import packageJson from "../../package.json" with { type: "json" };
 import type { DetectedLanguage, LinterDefinition } from "./types.ts";
 import type { PromptChoice } from "./prompts/types.ts";
 
-export const VERSION = "0.0.0";
+export const VERSION = packageJson.version;
 
 export const CONFIG_FILENAMES = [".legibilityrc", "legibility.json"] as const;
 
