@@ -1,0 +1,9 @@
+[tools]
+shellcheck = "0.11.0"
+shfmt = "3.13.1"
+
+[tools."github:yowainwright/shellcheck_legibility"]
+version = "0.2.1"
+asset_pattern = "shellcheck-legibility-{{ version }}.tar.gz"
+bin_path = "bin"
+checksum = "sha256:137942db1000e72ce8e8f2fbe8c10e334c70dc554ad2ef08aa49f0778f0302c0"

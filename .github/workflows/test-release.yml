@@ -1,0 +1,88 @@
+name: Test Published Release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Published Legibility version to test (leave empty for latest)
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: npm package smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: 24
+
+      - name: Resolve version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version || github.event.release.tag_name }}
+        run: |
+          if [ -n "$INPUT_VERSION" ]; then
+            VERSION="${INPUT_VERSION#v}"
+          else
+            VERSION="$(npm view legibility version)"
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Wait for npm package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          for attempt in $(seq 1 30); do
+            if npm view "legibility@$VERSION" version >/dev/null 2>&1; then
+              exit 0
+            fi
+            echo "Waiting for legibility@$VERSION (attempt $attempt/30)"
+            sleep 10
+          done
+          echo "legibility@$VERSION was not available on npm" >&2
+          exit 1
+
+      - name: Install published package
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: npm install --global "legibility@$VERSION"
+
+      - name: Verify CLI metadata
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          legibility --version | grep -F "legibility version $VERSION"
+          legibility --help | grep -F "Usage: legibility"
+
+      - name: Verify configured dry run
+        run: |
+          FIXTURE="$RUNNER_TEMP/legibility-release-fixture"
+          mkdir -p "$FIXTURE"
+          node -e 'const fs = require("node:fs"); const path = process.argv[1]; fs.writeFileSync(path, JSON.stringify({ linters: { "fs-lint": { enabled: true, args: ["--check"] } } }) + "\n");' "$FIXTURE/legibility.json"
+          OUTPUT="$(cd "$FIXTURE" && legibility --dry-run)"
+          echo "$OUTPUT"
+          echo "$OUTPUT" | grep -F '"fs-lint" "--check"'
+
+      - name: Verify native release asset
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          ASSET="legibility-linux-amd64"
+          RELEASE_URL="https://github.com/yowainwright/legibility/releases/download/v$VERSION"
+          curl --fail --location --silent --show-error "$RELEASE_URL/$ASSET" --output "$RUNNER_TEMP/$ASSET"
+          curl --fail --location --silent --show-error "$RELEASE_URL/$ASSET.sha256" --output "$RUNNER_TEMP/$ASSET.sha256"
+          (cd "$RUNNER_TEMP" && sha256sum --check "$ASSET.sha256")
+          chmod +x "$RUNNER_TEMP/$ASSET"
+          "$RUNNER_TEMP/$ASSET" --help | grep -F "Usage: legibility"
