@@ -1,10 +1,16 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import test from "node:test";
 import { join } from "node:path";
-import { homebrewLinterUpdates, parseHomebrewOutdated, parseOptions } from "../../src/cli/index.ts";
-import { STYLEGUIDE_TOUR_CHOICES } from "../../src/cli/constants.ts";
+import {
+  detectLanguages,
+  homebrewLinterUpdates,
+  parseHomebrewOutdated,
+  parseOptions,
+} from "../../src/cli/index.ts";
+import { LINTER_DEFINITIONS, STYLEGUIDE_TOUR_CHOICES } from "../../src/cli/constants.ts";
 import { promptCheckbox, setPromptLine } from "../../src/cli/prompts/index.ts";
+import { promptForLinters } from "../../src/cli/utils.ts";
 import type { JsonObject } from "../../src/cli/types.ts";
 
 const homebrewPayload = {
@@ -93,15 +99,19 @@ test("parses Homebrew outdated formula data for supported linters", () => {
   ]);
 });
 
-test("keeps linter IDs open in the published schema", () => {
+test("publishes every supported linter ID in the schema", () => {
   const schema = JSON.parse(
     readFileSync(join(process.cwd(), "src/schema.json"), "utf8"),
   ) as JsonObject;
   const properties = schema.properties as JsonObject;
   const linters = properties.linters as JsonObject;
+  const propertyNames = linters.propertyNames as JsonObject;
 
   assert.equal(schema.additionalProperties, true);
-  assert.equal(linters.propertyNames, undefined);
+  assert.deepEqual(
+    propertyNames.enum,
+    LINTER_DEFINITIONS.map(({ id }) => id),
+  );
 });
 
 test("does not select disabled choices in an interactive checkbox", async (t) => {
@@ -116,4 +126,34 @@ test("does not select disabled choices in an interactive checkbox", async (t) =>
   ]);
 
   assert.deepEqual(selected, []);
+});
+
+test("filters linter choices by language and availability", async (t) => {
+  setPromptLine(() => Promise.resolve("4"));
+  t.after(() => setPromptLine(undefined));
+
+  const selected = await promptForLinters(
+    ["go"],
+    "fixture",
+    (command) => command === "golangci-lint",
+  );
+
+  assert.deepEqual(selected, ["golangci-lint-legibility"]);
+});
+
+test("detects languages in stable order and ignores generated directories", (t) => {
+  const root = mkdtempSync(join(process.cwd(), "tmp", "legibility-detect-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  mkdirSync(join(root, "src"), { recursive: true });
+  mkdirSync(join(root, "dist"), { recursive: true });
+  mkdirSync(join(root, "node_modules", "package"), { recursive: true });
+  writeFileSync(join(root, "src", "index.ts"), "export {};");
+  writeFileSync(join(root, "src", "app.js"), "export {};");
+  writeFileSync(join(root, "dist", "generated.py"), "print(1)");
+  writeFileSync(join(root, "node_modules", "package", "ignored.go"), "package ignored");
+
+  assert.deepEqual(detectLanguages(root), [
+    { id: "javascript", label: "JavaScript", count: 1, files: ["src/app.js"] },
+    { id: "typescript", label: "TypeScript", count: 1, files: ["src/index.ts"] },
+  ]);
 });

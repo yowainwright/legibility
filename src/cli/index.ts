@@ -244,7 +244,9 @@ export const parseOptions = (args: string[]): Options => {
 };
 
 const readFiles = (directory: string, prefix = ""): string[] => {
-  const entries = readdirSync(directory, { withFileTypes: true });
+  const entries = readdirSync(directory, { withFileTypes: true }).toSorted((left, right) =>
+    left.name.localeCompare(right.name),
+  );
   return entries.flatMap((entry) => {
     const relativePath = join(prefix, entry.name);
     if (!entry.isDirectory()) {
@@ -423,6 +425,31 @@ const updateIds = (source: Source | undefined, options: Options): string[] => {
   return ids;
 };
 
+const hasHomebrewLinter = (id: string): boolean =>
+  LINTER_DEFINITIONS.some(({ id: definitionId, brewFormula }) => {
+    const isMatchingId = definitionId === id;
+    const hasFormula = brewFormula !== undefined;
+    return isMatchingId && hasFormula;
+  });
+
+const checkForUpdates = async (source: Source, options: Options, log: Logger): Promise<void> => {
+  const shouldSkipUpdate = options.dryRun || !source.config.updates.enabled;
+  if (shouldSkipUpdate) return;
+  const shouldSkipPrompt = source.config.updates.prompt && !process.stdin.isTTY;
+  if (shouldSkipPrompt) {
+    log.debug("Skipping automatic update check without an interactive terminal", "update");
+    return;
+  }
+  const ids = updateIds(source, options).filter(hasHomebrewLinter);
+  if (ids.length === 0) return;
+  if (!commandIsAvailable(source.config.updates.manager, source.root)) {
+    log.debug("Homebrew is unavailable; skipping automatic update check", "update");
+    return;
+  }
+  const exitCode = await updateHomebrewLinters(source.root, ids, source.config.updates, log);
+  if (exitCode !== 0) log.debug(`Automatic update check exited with ${exitCode}`, "update");
+};
+
 const updateChoices = (updates: HomebrewLinterUpdate[]): PromptChoice[] =>
   updates.map(({ id, installedVersions, currentVersion, formula }) => ({
     name: id,
@@ -506,7 +533,9 @@ const runUpdate = (options: Options, log: Logger): Promise<number> | number => {
     throw new Error("native arguments after -- are not supported with update");
   }
   const source = readUpdateSource(options);
-  const config = source?.config ?? parseConfig({ linters: {} });
+  let config: Config;
+  if (source === undefined) config = parseConfig({ linters: {} });
+  else config = source.config;
   if (!config.updates.enabled) {
     log.print("Project linter updates are disabled.");
     return 0;
@@ -519,7 +548,9 @@ const runUpdate = (options: Options, log: Logger): Promise<number> | number => {
     log.fail("Error: legibility update requires an interactive terminal");
     return 2;
   }
-  const root = source?.root ?? resolve(process.cwd());
+  let root: string;
+  if (source === undefined) root = resolve(process.cwd());
+  else root = source.root;
   if (!commandIsAvailable(config.updates.manager, root)) {
     log.fail("Error: Homebrew is not available; install it before updating native linters");
     return 2;
@@ -580,7 +611,9 @@ const printDemoResult = (log: Logger, label: string, value: string): void => {
 const runWelcomeDemo = async (log: Logger): Promise<void> => {
   printDemoTitle(log, "Welcome confirmation");
   const answer = await promptConfirm("Demo · Set up Legibility for this project?", false);
-  printDemoResult(log, "setup", answer ? "yes" : "no");
+  let result = "no";
+  if (answer) result = "yes";
+  printDemoResult(log, "setup", result);
 };
 
 const runLanguagesDemo = async (log: Logger): Promise<void> => {
@@ -785,6 +818,7 @@ const setupProject = async (log: Logger, verbose: boolean): Promise<number> => {
   const shouldRun = await promptConfirm("Run these linters now?", false);
   log.debug(`Execution approved=${shouldRun}`, "setupProject");
   if (!shouldRun) return 0;
+  await checkForUpdates(source, Object.assign({}, options, { dryRun: false }), log);
   return runLinters(source, Object.assign({}, options, { dryRun: false }));
 };
 
@@ -842,6 +876,7 @@ export const run = async (args: string[]): Promise<number> => {
     if (options.update) return await runUpdate(options, log);
     const source = readRunSource(options);
     if (!source) return promptForSetup(options);
+    await checkForUpdates(source, options, log);
     return await runLinters(source, options);
   } catch (error: unknown) {
     log.fail(`Error: ${error instanceof Error ? error.message : String(error)}`);

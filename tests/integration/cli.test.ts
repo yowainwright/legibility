@@ -36,6 +36,25 @@ const createFakeLinter = (root: string, name: string): void => {
   chmodSync(path, 0o755);
 };
 
+const createFakeBrew = (root: string): void => {
+  const directory = join(root, "node_modules", ".bin");
+  const path = join(directory, "brew");
+  mkdirSync(directory, { recursive: true });
+  writeFileSync(
+    path,
+    [
+      "#!/bin/sh",
+      'printf "%s\\n" "$*" >> "$LEGIBILITY_TEST_BREW_LOG"',
+      'if [ "$1" = "outdated" ]; then',
+      '  printf \'{"formulae":[{"name":"fs-lint","installed_versions":["0.2.1"],"current_version":"0.2.2","pinned":false}]}\'',
+      "fi",
+      "exit 0",
+      "",
+    ].join("\n"),
+  );
+  chmodSync(path, 0o755);
+};
+
 const options = (overrides: Partial<Options> = {}): Options =>
   Object.assign(
     {
@@ -130,6 +149,115 @@ test("handles update without a project configuration", (t) => {
   assert.equal(result.status, 2);
   assert.match(output, /legibility update requires an interactive terminal/);
   assert.doesNotMatch(output, /configuration must be an object/);
+});
+
+test("runs the packaged JavaScript entrypoint for help and version", () => {
+  const cliPath = join(process.cwd(), "bin", "js", "legibility");
+  const help = spawnSync(process.execPath, ["--experimental-strip-types", cliPath, "--help"], {
+    encoding: "utf8",
+  });
+  const version = spawnSync(
+    process.execPath,
+    ["--experimental-strip-types", cliPath, "--version"],
+    {
+      encoding: "utf8",
+    },
+  );
+
+  assert.equal(help.status, 0);
+  assert.match(help.stdout, /Usage: legibility/);
+  assert.equal(version.status, 0);
+  assert.match(version.stdout, /legibility version \d+\.\d+\.\d+/);
+});
+
+test("rejects ambiguous parent and child configurations", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const child = join(fixture.root, "packages", "app");
+  mkdirSync(child, { recursive: true });
+  writeConfig(fixture.root, { linters: { "fs-lint": { enabled: true, args: [] } } });
+  writeFileSync(
+    join(child, "package.json"),
+    JSON.stringify({ legibility: { linters: { "src-lint": { enabled: true, args: [] } } } }),
+  );
+  const result = spawnSync(
+    process.execPath,
+    ["--experimental-strip-types", join(process.cwd(), "bin", "js", "legibility"), "--dry-run"],
+    { cwd: child, encoding: "utf8" },
+  );
+  const output = `${result.stdout ?? ""}\n${result.stderr ?? ""}`;
+
+  assert.equal(result.status, 2);
+  assert.match(output, /multiple Legibility configurations found/);
+});
+
+test("updates configured Homebrew linters without prompting when policy allows it", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  createFakeBrew(fixture.root);
+  const logPath = join(fixture.root, "brew-calls.log");
+  const configPath = writeConfig(fixture.root, {
+    updates: { enabled: true, manager: "brew", prompt: false },
+    linters: { "fs-lint": { enabled: true, args: [] } },
+  });
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      join(process.cwd(), "bin", "js", "legibility"),
+      "update",
+      "--config",
+      configPath,
+    ],
+    {
+      cwd: fixture.root,
+      encoding: "utf8",
+      env: Object.assign({}, process.env, { LEGIBILITY_TEST_BREW_LOG: logPath }),
+    },
+  );
+
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.equal(
+    readFileSync(logPath, "utf8"),
+    "update\noutdated --json=v2 --formula\nupgrade fs-lint\n",
+  );
+});
+
+test("checks for updates before a normal configured run", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  createFakeBrew(fixture.root);
+  createFakeLinter(fixture.root, "fs-lint");
+  const brewLogPath = join(fixture.root, "brew-calls.log");
+  const linterLogPath = join(fixture.root, "linter-calls.log");
+  const configPath = writeConfig(fixture.root, {
+    updates: { enabled: true, manager: "brew", prompt: false },
+    linters: { "fs-lint": { enabled: true, args: ["check"] } },
+  });
+  const result = spawnSync(
+    process.execPath,
+    [
+      "--experimental-strip-types",
+      join(process.cwd(), "bin", "js", "legibility"),
+      "--config",
+      configPath,
+    ],
+    {
+      cwd: fixture.root,
+      encoding: "utf8",
+      env: Object.assign({}, process.env, {
+        LEGIBILITY_TEST_BREW_LOG: brewLogPath,
+        LEGIBILITY_TEST_LOG: linterLogPath,
+      }),
+    },
+  );
+
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.equal(
+    readFileSync(brewLogPath, "utf8"),
+    "update\noutdated --json=v2 --formula\nupgrade fs-lint\n",
+  );
+  assert.equal(readFileSync(linterLogPath, "utf8"), "check\n");
 });
 
 test("runs a configured linter from the project bin and returns its exit code", async (t) => {

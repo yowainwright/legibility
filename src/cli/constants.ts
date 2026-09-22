@@ -255,4 +255,5 @@ Options:
       --styleguide     Show visual examples of the guided setup
   -v, --version        Show the version
       --verbose        Show local diagnostic logs on stderr
+      --               Pass remaining arguments to one selected linter
 `;

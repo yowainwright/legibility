@@ -13,7 +13,8 @@ Use this skill when a user asks to try, configure, or run Legibility.
 - Do not reproduce the CLI's detection or selection logic in the agent response.
 - If `legibility` is unavailable, show the exact install or build command and request approval before changing the project.
 - With an existing configuration, use `legibility --dry-run` before execution when the user has not already approved the run.
-- Use `legibility update` for Homebrew-backed linter updates; the CLI honors project update policy and asks by default before changes.
+- In a non-interactive terminal, pass `--config <path>`; the CLI does not create configuration without prompts.
+- Interactive runs check configured Homebrew-backed linters for updates by default; use `legibility update` for an update-only run. The CLI honors project update policy and asks before changes.
 - Preserve the CLI's exit code and native diagnostics. The configured tools determine pass or fail.
 
 ## Boundaries

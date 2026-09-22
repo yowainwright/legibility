@@ -76,6 +76,9 @@
   },
   "packageManager": "pnpm@11.21.0",
   "release-it": {
+    "hooks": {
+      "before:init": "pnpm run check && pnpm run test"
+    },
     "git": {
       "commitMessage": "chore(release): ${version}",
       "commitArgs": [
