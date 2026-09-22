@@ -20,6 +20,7 @@ import {
   NO_SETUP_MESSAGE,
   SETUP_QUESTION,
   STYLEGUIDE_DETECTED_LANGUAGES,
+  STYLEGUIDE_INSTALL_CHOICES,
   STYLEGUIDE_LANGUAGE_CHOICES,
   STYLEGUIDE_LINTER_CHOICES,
   STYLEGUIDE_TOUR_CHOICES,
@@ -31,6 +32,7 @@ import {
   commandLines,
   formatStyleguide,
   promptForLanguages,
+  promptForLinterInstall,
   promptForLinterConfig,
   promptForLinters,
   reviewLines,
@@ -290,21 +292,42 @@ const accessPath = (path: string): boolean => {
   }
 };
 
+const projectCommandIsAvailable = (command: string, projectBin: string): boolean => {
+  if (command === "brew") return false;
+  return accessPath(projectBin);
+};
+
+const windowsCommandPaths = (commandPaths: string[]): string[] => {
+  if (process.platform !== "win32") return [];
+  return commandPaths.map((path) => `${path}.exe`);
+};
+
+const commandSearchPaths = (
+  command: string,
+  projectBin: string,
+  commandPaths: string[],
+): string[] => {
+  if (command === "brew") return commandPaths;
+  return [projectBin].concat(commandPaths);
+};
+
 export const commandIsAvailable = (command: string, root: string): boolean => {
   const pathValue = process.env.PATH;
   const projectBin = join(root, "node_modules", ".bin", command);
-  if (!pathValue) return accessPath(projectBin);
+  if (!pathValue) return projectCommandIsAvailable(command, projectBin);
   const commandPaths = pathValue.split(delimiter).map((directory) => join(directory, command));
-  const windowsPaths =
-    process.platform === "win32" ? commandPaths.map((path) => `${path}.exe`) : [];
-  return [projectBin].concat(commandPaths, windowsPaths).some((path) => accessPath(path));
+  const windowsPaths = windowsCommandPaths(commandPaths);
+  const searchPaths = commandSearchPaths(command, projectBin, commandPaths);
+  const allPaths = searchPaths.concat(windowsPaths);
+  return allPaths.some((path) => accessPath(path));
 };
 
-const commandEnvironment = (root: string): Record<string, string> => {
+const commandEnvironment = (root: string, command: string): Record<string, string> => {
   const projectBin = join(root, "node_modules", ".bin");
   const pathValue = process.env.PATH ?? "";
+  const pathEntries = command === "brew" ? [pathValue] : [projectBin, pathValue];
   return Object.assign({}, process.env, {
-    PATH: [projectBin, pathValue].filter(Boolean).join(delimiter),
+    PATH: pathEntries.filter(Boolean).join(delimiter),
   }) as Record<string, string>;
 };
 
@@ -355,7 +378,7 @@ const readHomebrewOutdated = (root: string, log: Logger): unknown | undefined =>
   const result = spawnSync("brew", ["outdated", "--json=v2", "--formula"], {
     cwd: root,
     encoding: "utf8",
-    env: commandEnvironment(root),
+    env: commandEnvironment(root, "brew"),
   });
   if (result.error) {
     log.debug(`Could not inspect Homebrew: ${result.error.message}`, "update");
@@ -400,7 +423,7 @@ const runCommand = (
 ): Promise<number> => {
   if (nativeCommandRunner) return nativeCommandRunner(command, args, root);
   return new Promise((resolveExitCode) => {
-    const env = commandEnvironment(root);
+    const env = commandEnvironment(root, command);
     const child = spawn(command, args, { cwd: root, stdio: "inherit", env });
     child.on("error", (error: Error) => {
       log.fail(`Error: could not run ${command}: ${error.message}`);
@@ -520,6 +543,21 @@ const updateHomebrewLinters = async (
   return upgradeHomebrew(root, selected, config.prompt, log);
 };
 
+const installHomebrewLinters = (root: string, ids: string[], log: Logger): Promise<number> => {
+  const definitions = new Map(LINTER_DEFINITIONS.map((definition) => [definition.id, definition]));
+  const formulas = ids.flatMap((id) => {
+    const definition = definitions.get(id);
+    if (definition === undefined) return [];
+    const formula = definition.brewFormula;
+    const hasFormula = formula !== undefined;
+    if (!hasFormula) return [];
+    return [formula];
+  });
+  if (formulas.length === 0) return Promise.resolve(0);
+  log.print(`Installing native linters: ${ids.join(", ")}`);
+  return runCommand("brew", ["install"].concat(formulas), root, log);
+};
+
 const readUpdateSource = (options: Options): Source | undefined => {
   if (options.configPath) return readSource(resolve(process.cwd(), options.configPath));
   return discoverConfig();
@@ -625,6 +663,19 @@ const runLanguagesDemo = async (log: Logger): Promise<void> => {
   printDemoResult(log, "languages", selected.join(", ") || "none");
 };
 
+const runInstallDemo = async (log: Logger): Promise<void> => {
+  printDemoTitle(log, "Install native linters");
+  const installAll = await promptConfirm("Demo · Install all available native linters?", true);
+  const selected = installAll
+    ? STYLEGUIDE_INSTALL_CHOICES.map(({ value }) => value)
+    : await promptCheckbox(
+        "Demo · Which native linters should be installed?",
+        STYLEGUIDE_INSTALL_CHOICES,
+      );
+  printDemoResult(log, "install", selected.join(", ") || "none");
+  log.print("Demo · Homebrew install is not executed.");
+};
+
 const runLintersDemo = async (log: Logger): Promise<void> => {
   printDemoTitle(log, "Select available linters");
   const selected = await promptCheckbox(
@@ -692,6 +743,7 @@ const runFullSetupDemo = async (log: Logger): Promise<void> => {
   printDemoTitle(log, "Detect languages");
   const languages = await promptForLanguages(STYLEGUIDE_DETECTED_LANGUAGES);
   printDemoResult(log, "languages", languages.join(", ") || "none");
+  await runInstallDemo(log);
   printDemoTitle(log, "Select available linters");
   const names = await promptForLinters(languages, "styleguide", styleguideCommandAvailable);
   const hasSelectedLinters = names !== undefined && names.length > 0;
@@ -744,6 +796,7 @@ const runDemo = async (selection: string, log: Logger): Promise<void> => {
   if (selection === "full") return await runFullSetupDemo(log);
   if (selection === "welcome") return await runWelcomeDemo(log);
   if (selection === "languages") return await runLanguagesDemo(log);
+  if (selection === "install") return await runInstallDemo(log);
   if (selection === "linters") return await runLintersDemo(log);
   if (selection === "arguments") return await runArgumentsDemo(log);
   if (selection === "review") return await runReviewDemo(log);
@@ -783,11 +836,29 @@ const readSourceAfterSave = (source: Source, log: Logger): Source => {
   return readSource(path);
 };
 
+const setupOptions = (source: Source, names: string[], verbose: boolean): Options => {
+  const configPath = source.path === "interactive" ? undefined : source.path;
+  return {
+    configPath,
+    dryRun: true,
+    help: false,
+    linters: names,
+    nativeArgs: [],
+    styleguide: false,
+    update: false,
+    version: false,
+    verbose,
+  };
+};
+
 const setupProject = async (log: Logger, verbose: boolean): Promise<number> => {
   const root = resolve(process.cwd());
   const detected = detectLanguages(root);
   const languages = await promptForLanguages(detected);
   log.debug(`Languages: ${languages.join(",") || "none"}`, "setupProject");
+  const installIds = await promptForLinterInstall(languages, root, commandIsAvailable);
+  const installExit = await installHomebrewLinters(root, installIds, log);
+  if (installExit !== 0) return installExit;
   const names = await promptForLinters(languages, root, commandIsAvailable);
   if (!names) {
     log.fail("No supported Legibility linter is installed.");
@@ -800,18 +871,7 @@ const setupProject = async (log: Logger, verbose: boolean): Promise<number> => {
   const shouldSave = await promptConfirm("Save this configuration to legibility.json?", true);
   log.debug(`Configuration saved=${shouldSave}`, "setupProject");
   const source = shouldSave ? readSourceAfterSave(initialSource, log) : initialSource;
-  const configPath = source.path === "interactive" ? undefined : source.path;
-  const options: Options = {
-    configPath,
-    dryRun: true,
-    help: false,
-    linters: names,
-    nativeArgs: [],
-    styleguide: false,
-    update: false,
-    version: false,
-    verbose,
-  };
+  const options = setupOptions(source, names, verbose);
   log.print("\nPreview — no linters will run:");
   const dryRunExit = await runLinters(source, options);
   if (dryRunExit !== 0) return dryRunExit;

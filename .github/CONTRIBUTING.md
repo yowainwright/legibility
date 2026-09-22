@@ -7,7 +7,8 @@ request.
 
 ## Local checks
 
-Use Node 24 and pnpm:
+Use Node 26 and pnpm for development. The published package supports Node 24
+and newer:
 
 ```sh
 pnpm install

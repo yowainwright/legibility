@@ -10,8 +10,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import test from "node:test";
-import { join } from "node:path";
-import { readSource, runLinters } from "../../src/cli/index.ts";
+import { delimiter, join } from "node:path";
+import { commandIsAvailable, readSource, runLinters } from "../../src/cli/index.ts";
 import type { Options, Source } from "../../src/cli/types.ts";
 
 const createFixture = (): { root: string; cleanup: () => void } => {
@@ -36,8 +36,8 @@ const createFakeLinter = (root: string, name: string): void => {
   chmodSync(path, 0o755);
 };
 
-const createFakeBrew = (root: string): void => {
-  const directory = join(root, "node_modules", ".bin");
+const createFakeBrew = (root: string): string => {
+  const directory = join(root, "fake-bin");
   const path = join(directory, "brew");
   mkdirSync(directory, { recursive: true });
   writeFileSync(
@@ -53,7 +53,11 @@ const createFakeBrew = (root: string): void => {
     ].join("\n"),
   );
   chmodSync(path, 0o755);
+  return directory;
 };
+
+const testPath = (directory: string): string =>
+  [directory, process.env.PATH].filter(Boolean).join(delimiter);
 
 const options = (overrides: Partial<Options> = {}): Options =>
   Object.assign(
@@ -136,6 +140,22 @@ test("preserves an explicit project update policy", (t) => {
   });
 });
 
+test("does not resolve Homebrew from the project bin", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  createFakeLinter(fixture.root, "brew");
+  const emptyPath = join(fixture.root, "empty-bin");
+  mkdirSync(emptyPath, { recursive: true });
+  const previousPath = process.env.PATH;
+  process.env.PATH = emptyPath;
+  t.after(() => {
+    if (previousPath === undefined) delete process.env.PATH;
+    else process.env.PATH = previousPath;
+  });
+
+  assert.equal(commandIsAvailable("brew", fixture.root), false);
+});
+
 test("handles update without a project configuration", (t) => {
   const fixture = createFixture();
   t.after(fixture.cleanup);
@@ -194,7 +214,7 @@ test("rejects ambiguous parent and child configurations", (t) => {
 test("updates configured Homebrew linters without prompting when policy allows it", (t) => {
   const fixture = createFixture();
   t.after(fixture.cleanup);
-  createFakeBrew(fixture.root);
+  const brewDirectory = createFakeBrew(fixture.root);
   const logPath = join(fixture.root, "brew-calls.log");
   const configPath = writeConfig(fixture.root, {
     updates: { enabled: true, manager: "brew", prompt: false },
@@ -212,7 +232,10 @@ test("updates configured Homebrew linters without prompting when policy allows i
     {
       cwd: fixture.root,
       encoding: "utf8",
-      env: Object.assign({}, process.env, { LEGIBILITY_TEST_BREW_LOG: logPath }),
+      env: Object.assign({}, process.env, {
+        LEGIBILITY_TEST_BREW_LOG: logPath,
+        PATH: testPath(brewDirectory),
+      }),
     },
   );
 
@@ -226,7 +249,7 @@ test("updates configured Homebrew linters without prompting when policy allows i
 test("checks for updates before a normal configured run", (t) => {
   const fixture = createFixture();
   t.after(fixture.cleanup);
-  createFakeBrew(fixture.root);
+  const brewDirectory = createFakeBrew(fixture.root);
   createFakeLinter(fixture.root, "fs-lint");
   const brewLogPath = join(fixture.root, "brew-calls.log");
   const linterLogPath = join(fixture.root, "linter-calls.log");
@@ -248,6 +271,7 @@ test("checks for updates before a normal configured run", (t) => {
       env: Object.assign({}, process.env, {
         LEGIBILITY_TEST_BREW_LOG: brewLogPath,
         LEGIBILITY_TEST_LOG: linterLogPath,
+        PATH: testPath(brewDirectory),
       }),
     },
   );

@@ -4,6 +4,7 @@ import {
   LANGUAGE_DEFINITIONS,
   LINTER_DEFINITIONS,
   STYLEGUIDE_CANCEL_MARK,
+  STYLEGUIDE_INSTALL_CHOICES,
   STYLEGUIDE_LANGUAGE_CHOICES,
   STYLEGUIDE_LINTER_CHOICES,
   STYLEGUIDE_PREVIEW_MARK,
@@ -14,8 +15,15 @@ import {
   formatInputDemo,
   promptAnsi as ANSI,
 } from "./prompts/index.ts";
-import { promptCheckbox, promptInput } from "./prompts/index.ts";
-import type { CommandAvailability, DetectedLanguage, JsonObject, Linter, Source } from "./types.ts";
+import { promptCheckbox, promptConfirm, promptInput } from "./prompts/index.ts";
+import type {
+  CommandAvailability,
+  DetectedLanguage,
+  JsonObject,
+  Linter,
+  LinterDefinition,
+  Source,
+} from "./types.ts";
 
 const languageDescription = (language: DetectedLanguage | undefined): string => {
   if (!language) return "not detected";
@@ -43,9 +51,54 @@ export const promptForLanguages = (detected: DetectedLanguage[]): Promise<string
 
 const supportsLanguages = (languages: string[], supported: readonly string[]): boolean => {
   const supportedLanguages = new Set(supported);
-  return (
-    supportedLanguages.has("*") || languages.some((language) => supportedLanguages.has(language))
-  );
+  const hasAnySupportedLanguage = languages.some((language) => supportedLanguages.has(language));
+  if (supportedLanguages.has("*")) return true;
+  return hasAnySupportedLanguage;
+};
+
+const candidateLinters = (languages: string[]): LinterDefinition[] =>
+  LINTER_DEFINITIONS.filter(({ languages: supported }) => supportsLanguages(languages, supported));
+
+const isInstallableLinter = (
+  definition: LinterDefinition,
+): definition is LinterDefinition & { brewFormula: string } =>
+  definition.kind === "standalone" && definition.brewFormula !== undefined;
+
+const installableLinters = (
+  languages: string[],
+  root: string,
+  isAvailable: CommandAvailability,
+): Array<LinterDefinition & { brewFormula: string }> =>
+  candidateLinters(languages)
+    .filter(isInstallableLinter)
+    .filter(({ command }) => !isAvailable(command, root));
+
+const installDescription = (definition: LinterDefinition & { brewFormula: string }): string =>
+  `${definition.description} · brew install ${definition.brewFormula}`;
+
+const linterDisabledState = (isInstalled: boolean): boolean | string => {
+  if (isInstalled) return false;
+  return "not installed";
+};
+
+export const promptForLinterInstall = async (
+  languages: string[],
+  root: string,
+  isAvailable: CommandAvailability,
+): Promise<string[]> => {
+  const candidates = installableLinters(languages, root, isAvailable);
+  if (candidates.length === 0) return [];
+  const hasHomebrew = isAvailable("brew", root);
+  if (!hasHomebrew) return [];
+  const installAll = await promptConfirm("Install all available native linters?", true);
+  if (installAll) return candidates.map(({ id }) => id);
+  const choices = candidates.map((definition) => ({
+    name: definition.id,
+    value: definition.id,
+    description: installDescription(definition),
+    checked: true,
+  }));
+  return promptCheckbox("Which native linters should be installed?", choices);
 };
 
 export const promptForLinters = (
@@ -53,9 +106,7 @@ export const promptForLinters = (
   root: string,
   isAvailable: CommandAvailability,
 ): Promise<string[] | undefined> => {
-  const candidates = LINTER_DEFINITIONS.filter(({ languages: supported }) =>
-    supportsLanguages(languages, supported),
-  );
+  const candidates = candidateLinters(languages);
   const available = candidates.filter(({ command }) => isAvailable(command, root));
   if (available.length === 0) return Promise.resolve(undefined);
   const availableIds = new Set(available.map(({ id }) => id));
@@ -66,7 +117,7 @@ export const promptForLinters = (
       value: id,
       description: `${description} · ${command}`,
       checked: isInstalled,
-      disabled: isInstalled ? false : "not installed",
+      disabled: linterDisabledState(isInstalled),
     };
   });
   return promptCheckbox("Which linters should run?", choices, true);
@@ -143,6 +194,10 @@ export const formatStyleguide = (): string => {
     STYLEGUIDE_LANGUAGE_CHOICES,
   );
   const linterFrame = formatCheckboxDemo("Which linters should run?", STYLEGUIDE_LINTER_CHOICES);
+  const installFrame = formatCheckboxDemo(
+    "Which native linters should be installed?",
+    STYLEGUIDE_INSTALL_CHOICES,
+  );
   const cancellationLine = `${ANSI.RED}${STYLEGUIDE_CANCEL_MARK}${ANSI.RESET} Which linters should run?: cancelled`;
   return [
     `${ANSI.BOLD}${ANSI.CYAN}Legibility CLI Styleguide${ANSI.RESET}`,
@@ -150,14 +205,18 @@ export const formatStyleguide = (): string => {
     `${ANSI.GRAY}────────────────────────────────────────────────────────────────────${ANSI.RESET}`,
     section("01  Welcome", [formatConfirmDemo("Set up Legibility for this project?", false)]),
     section("02  Detect languages", languageFrame),
-    section("03  Select available linters", linterFrame),
-    section("04  Configure native arguments", [
+    section(
+      "03  Install native linters",
+      [formatConfirmDemo("Install all available native linters?", true)].concat(installFrame),
+    ),
+    section("04  Select available linters", linterFrame),
+    section("05  Configure native arguments", [
       formatInputDemo("Arguments for oxlint-plugin-legibility (optional)", "--deny-warnings"),
     ]),
-    section("05  Review and save", reviewLines()),
-    section("06  Preview commands", commandLines()),
-    section("07  Approve execution", [formatConfirmDemo("Run these linters now?", false)]),
-    section("08  Cancellation", [cancellationLine]),
+    section("06  Review and save", reviewLines()),
+    section("07  Preview commands", commandLines()),
+    section("08  Approve execution", [formatConfirmDemo("Run these linters now?", false)]),
+    section("09  Cancellation", [cancellationLine]),
     `${ANSI.GRAY}────────────────────────────────────────────────────────────────────${ANSI.RESET}`,
     `${ANSI.GRAY}Keyboard: ↑/↓ navigate · Space toggle · a all · n none · Enter confirm · Esc cancel${ANSI.RESET}`,
   ].join("\n\n");

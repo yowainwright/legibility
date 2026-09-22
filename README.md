@@ -12,7 +12,9 @@ The npm package requires Node 24 or newer:
 npm install --global legibility
 ```
 
-Native binaries are published for macOS arm64 and amd64, and Linux arm64 and amd64. Homebrew installation is available after the formula is published:
+The npm package installs the JavaScript CLI. Native binaries are published as
+GitHub release assets for macOS arm64 and amd64, and Linux arm64 and amd64.
+Homebrew installation is available after the formula is published:
 
 ```sh
 brew tap yowainwright/tap
@@ -27,7 +29,13 @@ Run Legibility from a project directory:
 legibility
 ```
 
-The guided flow detects project languages, shows the supported linters that are installed, collects native arguments, previews commands, and asks before writing `legibility.json` or running a linter. Detection skips common generated and dependency directories such as `.git`, `node_modules`, `dist`, `build`, `coverage`, `tmp`, and `vendor`.
+The guided flow detects project languages, offers to install missing
+Homebrew-backed native linters (all or individually), shows the supported
+linters that are installed, collects native arguments, previews commands, and
+asks before writing `legibility.json` or running a linter. Hosted integrations
+such as ESLint and Oxlint remain project-managed dependencies. Detection skips
+common generated and dependency directories such as `.git`, `node_modules`,
+`dist`, `build`, `coverage`, `tmp`, and `vendor`.
 
 Use the styleguide to exercise every prompt without changing a project:
 
@@ -262,7 +270,8 @@ The npm package includes `skills/legibility-workflow/SKILL.md`. Agent integratio
 
 ## Development
 
-Use Node 24 and pnpm for local development:
+Use Node 26 and pnpm for local development. The published npm package supports
+Node 24 and newer:
 
 ```sh
 pnpm install

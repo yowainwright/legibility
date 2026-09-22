@@ -36,6 +36,7 @@ const writeFakeLinter = (directory: string, command: string): void => {
 };
 
 const createFixture = (): { root: string; cleanup: () => void } => {
+  mkdirSync(join(process.cwd(), "tmp"), { recursive: true });
   const root = mkdtempSync(join(process.cwd(), "tmp", "legibility-native-"));
   const binDirectory = join(root, "node_modules", ".bin");
   mkdirSync(join(root, "src"), { recursive: true });

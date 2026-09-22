@@ -217,6 +217,22 @@ const cursorDirection = (key: PromptKey): number => {
   return 0;
 };
 
+const toggleSelectorChoice = (
+  runtime: SelectorRuntime,
+  key: PromptKey,
+  render: () => void,
+): void => {
+  if (runtime.mode !== "multi") return;
+  Object.assign(runtime.state, updateSelected(runtime.state, " ", key, runtime.choices));
+  render();
+};
+
+const toggleSelected = (state: SelectorState): boolean[] =>
+  state.selected.map((value, index) => {
+    if (index !== state.cursorIndex) return value;
+    return !value;
+  });
+
 const updateSelected = (
   state: SelectorState,
   input: string | undefined,
@@ -224,13 +240,7 @@ const updateSelected = (
   choices: PromptChoice[],
 ): SelectorState => {
   const isSpace = input === " " || key.name === "space";
-  if (isSpace) {
-    const selected = state.selected.map((value, index) => {
-      if (index === state.cursorIndex) return !value;
-      return value;
-    });
-    return Object.assign({}, state, { selected });
-  }
+  if (isSpace) return Object.assign({}, state, { selected: toggleSelected(state) });
   const shortcut = input?.toLowerCase() ?? "";
   if (shortcut === "a") {
     return Object.assign({}, state, {
@@ -273,7 +283,6 @@ const cleanupSelector = (handlers: SelectorHandlers): void => {
     return;
   }
   process.stdin.off("keypress", handlers.onKeypress);
-  process.stdin.off("data", handlers.onData);
   if (typeof process.stdin.setRawMode === "function") process.stdin.setRawMode(false);
   process.stdin.pause();
   process.stdout.write(ANSI.SHOW_CURSOR);
@@ -329,23 +338,11 @@ const handleSelectorKeypress = ({
     return;
   }
   const isSpace = input === " " || key.name === "space";
-  if (isSpace) return;
+  if (isSpace) return toggleSelectorChoice(runtime, key, render);
   const shortcut = input?.toLowerCase() ?? "";
   const isSelectionKey = ["a", "n"].includes(shortcut);
   if (!isSelectionKey) return;
   Object.assign(runtime.state, updateSelected(runtime.state, input, key, runtime.choices));
-  render();
-};
-
-const handleSelectorData = (runtime: SelectorRuntime, chunk: Buffer, render: () => void): void => {
-  const isMultiSelect = runtime.mode === "multi";
-  const hasSpace = chunk.toString("utf8").includes(" ");
-  const shouldIgnoreData = !isMultiSelect || !hasSpace;
-  if (shouldIgnoreData) return;
-  Object.assign(
-    runtime.state,
-    updateSelected(runtime.state, " ", { name: "space" }, runtime.choices),
-  );
   render();
 };
 
@@ -355,7 +352,6 @@ const createSelectorHandlers = (
   render: () => void,
 ): SelectorHandlers => ({
   onKeypress: (input, key = {}) => handleSelectorKeypress({ runtime, input, key, finish, render }),
-  onData: (chunk) => handleSelectorData(runtime, chunk, render),
 });
 
 const setupSelector = (
@@ -374,7 +370,6 @@ const setupSelector = (
     process.stdin.setRawMode(true);
     process.stdin.resume();
     process.stdin.on("keypress", handlers.onKeypress);
-    process.stdin.on("data", handlers.onData);
     process.stdout.write(ANSI.HIDE_CURSOR);
     render();
   } catch (error: unknown) {
@@ -401,6 +396,20 @@ const nativeKey = (input: string): PromptKey => {
   if (isEnter) return { name: "enter" };
   if (isSpace) return { name: "space" };
   return { name: input.charAt(0) };
+};
+
+const splitNativeInput = (input: string): { keys: string[]; remainder: string } => {
+  let keys: string[] = [];
+  let offset = 0;
+  while (offset < input.length) {
+    const isEscapeSequence = input.startsWith("\u001b[", offset);
+    const keyLength = isEscapeSequence ? 3 : 1;
+    const isPartialEscape = isEscapeSequence && input.length - offset < keyLength;
+    if (isPartialEscape) return { keys, remainder: input.slice(offset) };
+    keys = keys.concat([input.slice(offset, offset + keyLength)]);
+    offset += keyLength;
+  }
+  return { keys, remainder: "" };
 };
 
 const handleNativeSelectorKey = (
@@ -436,12 +445,18 @@ const runNativeSelector = (
       isFinished: false,
     };
     const render = (): void => renderSelector(runtime);
-    const handlers: SelectorHandlers = { onKeypress: () => undefined, onData: () => undefined };
+    const handlers: SelectorHandlers = { onKeypress: () => undefined };
     const finish = (error?: Error): void =>
       finishSelector({ runtime, handlers, error, resolve, reject });
+    let pendingInput = "";
     const readNext = async (): Promise<void> => {
-      const input = await promptKey();
-      handleNativeSelectorKey(runtime, input, finish, render);
+      pendingInput += await promptKey();
+      const parsed = splitNativeInput(pendingInput);
+      pendingInput = parsed.remainder;
+      for (const input of parsed.keys) {
+        handleNativeSelectorKey(runtime, input, finish, render);
+        if (runtime.isFinished) return;
+      }
       if (!runtime.isFinished) await readNext();
     };
     render();

@@ -42,7 +42,6 @@ export type SelectorRuntime = {
 
 export type SelectorHandlers = {
   onKeypress: (input: string | undefined, key?: PromptKey) => void;
-  onData: (chunk: Buffer) => void;
 };
 
 export type SelectorFinish = (error?: Error) => void;

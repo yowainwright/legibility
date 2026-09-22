@@ -10,7 +10,7 @@ import {
 } from "../../src/cli/index.ts";
 import { LINTER_DEFINITIONS, STYLEGUIDE_TOUR_CHOICES } from "../../src/cli/constants.ts";
 import { promptCheckbox, setPromptLine } from "../../src/cli/prompts/index.ts";
-import { promptForLinters } from "../../src/cli/utils.ts";
+import { promptForLinterInstall, promptForLinters } from "../../src/cli/utils.ts";
 import type { JsonObject } from "../../src/cli/types.ts";
 
 const homebrewPayload = {
@@ -68,7 +68,7 @@ test("includes the full setup flow in the styleguide", () => {
   assert.deepEqual(fullFlow, {
     name: "Full setup flow",
     value: "full",
-    description: "welcome through dry-run and execution approval",
+    description: "welcome through install, dry-run, and execution approval",
   });
 });
 
@@ -126,6 +126,37 @@ test("does not select disabled choices in an interactive checkbox", async (t) =>
   ]);
 
   assert.deepEqual(selected, []);
+});
+
+test("preserves selections when Space and Enter arrive together", async (t) => {
+  setPromptLine(
+    () => Promise.resolve(""),
+    () => Promise.resolve(" \r"),
+  );
+  t.after(() => setPromptLine(undefined));
+
+  const selected = await promptCheckbox("Choose languages", [
+    { name: "C", value: "c" },
+    { name: "TypeScript", value: "typescript", checked: true },
+  ]);
+
+  assert.deepEqual(selected, ["c", "typescript"]);
+});
+
+test("offers individual Homebrew installation choices for native linters", async (t) => {
+  setPromptLine(
+    () => Promise.resolve("n"),
+    () => Promise.resolve(" \r"),
+  );
+  t.after(() => setPromptLine(undefined));
+
+  const selected = await promptForLinterInstall(
+    ["typescript"],
+    "fixture",
+    (command) => command === "brew",
+  );
+
+  assert.deepEqual(selected, ["src-lint", "struct-lint"]);
 });
 
 test("filters linter choices by language and availability", async (t) => {

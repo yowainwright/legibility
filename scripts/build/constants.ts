@@ -1,6 +1,8 @@
 export const BUILD_SCRIPT_LABEL = "scripts/build/index.ts";
 export const CLI_OUTPUT_DIR = "bin/js";
+export const CLI_SOURCE_FILE = `${CLI_OUTPUT_DIR}/legibility-entry.ts`;
 export const CLI_ENTRY_FILE = `${CLI_OUTPUT_DIR}/legibility`;
+export const CLI_BUNDLE_BANNER = "#!/usr/bin/env node";
 export const CLI_ONLY_FLAG = "--cli-only";
 export const BIN_OUTPUT_DIR = "bin/native";
 export const BIN_OUTPUT_FILE = `${BIN_OUTPUT_DIR}/legibility`;

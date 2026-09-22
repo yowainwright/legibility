@@ -186,6 +186,27 @@ export const STYLEGUIDE_LINTER_CHOICES: PromptChoice[] = [
   },
 ];
 
+export const STYLEGUIDE_INSTALL_CHOICES: PromptChoice[] = [
+  {
+    name: "fs-lint",
+    value: "fs-lint",
+    description: "file and path policy · brew install fs-lint",
+    checked: true,
+  },
+  {
+    name: "src-lint",
+    value: "src-lint",
+    description: "import boundary policy · brew install src-lint",
+    checked: true,
+  },
+  {
+    name: "struct-lint",
+    value: "struct-lint",
+    description: "declaration and function order · brew install struct-lint",
+    checked: true,
+  },
+];
+
 export const STYLEGUIDE_UPDATE_CHOICES: PromptChoice[] = [
   {
     name: "fs-lint",
@@ -205,13 +226,18 @@ export const STYLEGUIDE_TOUR_CHOICES: PromptChoice[] = [
   {
     name: "Full setup flow",
     value: "full",
-    description: "welcome through dry-run and execution approval",
+    description: "welcome through install, dry-run, and execution approval",
   },
   { name: "Welcome confirmation", value: "welcome", description: "yes/no default handling" },
   {
     name: "Detect languages",
     value: "languages",
     description: "checkboxes, Space toggle, and Enter confirm",
+  },
+  {
+    name: "Install native linters",
+    value: "install",
+    description: "install all or choose Homebrew-backed linters",
   },
   {
     name: "Select available linters",

@@ -26,6 +26,7 @@
   },
   "scripts": {
     "build": "node --experimental-strip-types ./scripts/build/index.ts --cli-only && node --experimental-strip-types ./bin/js/legibility --help",
+    "cli": "node --experimental-strip-types ./scripts/build/index.ts --cli-only && node ./bin/js/legibility",
     "build:native": "node --experimental-strip-types ./scripts/build/index.ts",
     "build:native:release": "node --experimental-strip-types ./scripts/build/index.ts --release",
     "check": "pnpm run format && pnpm run lint && pnpm run typecheck && pnpm run build",
@@ -74,7 +75,7 @@
   "engines": {
     "node": ">=24"
   },
-  "packageManager": "pnpm@11.21.0",
+  "packageManager": "pnpm@12.5.1",
   "release-it": {
     "hooks": {
       "before:init": "pnpm run check && pnpm run test"

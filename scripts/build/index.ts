@@ -11,9 +11,11 @@ import {
   BIN_RUNTIME_PACKAGE_FILE,
   BIN_RUNTIME_TYPES_FILE,
   BUILD_SCRIPT_LABEL,
+  CLI_BUNDLE_BANNER,
   CLI_ENTRY_FILE,
   CLI_ONLY_FLAG,
   CLI_OUTPUT_DIR,
+  CLI_SOURCE_FILE,
   NATIVE_RELEASE_FLAG,
   RUNTIME_PACKAGE_NAME,
   nativeReleaseOutputFile,
@@ -36,8 +38,6 @@ const renderRuntimeEntry = (): string =>
 
 const renderCliEntry = (): string =>
   [
-    "#!/usr/bin/env node",
-    "",
     'import { run } from "../../src/cli/index.ts";',
     "",
     "const exitCode = await run(process.argv.slice(2));",
@@ -137,7 +137,21 @@ const writeBinarySources = (): void => {
 
 const writeCliEntry = (): void => {
   mkdirSync(CLI_OUTPUT_DIR, { recursive: true });
-  writeFileSync(CLI_ENTRY_FILE, renderCliEntry());
+  writeFileSync(CLI_SOURCE_FILE, renderCliEntry());
+};
+
+const bundleCli = (): void => {
+  runBuildCommand("rolldown", [
+    CLI_SOURCE_FILE,
+    "--file",
+    CLI_ENTRY_FILE,
+    "--platform",
+    "node",
+    "--format",
+    "esm",
+    "--banner",
+    CLI_BUNDLE_BANNER,
+  ]);
   chmodSync(CLI_ENTRY_FILE, 0o755);
 };
 
@@ -174,6 +188,7 @@ const printBinarySize = (outputFile: string): void => {
 const buildBinary = (): void => {
   const buildArguments = new Set(process.argv.slice(2));
   writeCliEntry();
+  bundleCli();
   if (buildArguments.has(CLI_ONLY_FLAG)) return;
   const isReleaseBuild = buildArguments.has(NATIVE_RELEASE_FLAG);
   const outputFile = isReleaseBuild ? nativeReleaseOutputFile() : BIN_OUTPUT_FILE;
