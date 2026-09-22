@@ -15,7 +15,9 @@ import { commandIsAvailable, readSource, runLinters } from "../../src/cli/index.
 import type { Options, Source } from "../../src/cli/types.ts";
 
 const createFixture = (): { root: string; cleanup: () => void } => {
-  const root = mkdtempSync(join(process.cwd(), "tmp", "legibility-test-"));
+  const temporaryDirectory = join(process.cwd(), "tmp");
+  mkdirSync(temporaryDirectory, { recursive: true });
+  const root = mkdtempSync(join(temporaryDirectory, "legibility-test-"));
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 };
 
