@@ -55,6 +55,48 @@ export type CommandAvailability = (command: string, root: string) => boolean;
 
 export type CommandRunner = (command: string, args: string[], root: string) => Promise<number>;
 
+export type RuleCoverage = {
+  details: string;
+  language: string;
+  status: string;
+};
+
+export type RuleVariant = {
+  anchor: string;
+  coverage: RuleCoverage[];
+  defaultState: "disabled" | "enabled" | "unknown";
+  languages: string[];
+  nativeRule: string;
+  plugin: string;
+  recommended?: unknown;
+  settings: string;
+};
+
+export type RuleSearchRecord = {
+  description: string;
+  id: string;
+  languages: string[];
+  name: string;
+  searchText: string;
+  tags: string[];
+  variants: RuleVariant[];
+};
+
+export type RuleCatalog = {
+  contentType: "text/markdown";
+  formatVersion: number;
+  markdown: string;
+  rules: RuleSearchRecord[];
+  sourceRevision: string;
+  topics: string[];
+};
+
+export type RuleRuntimeRecord = Omit<RuleSearchRecord, "searchText"> & { searchTerms: string };
+
+export type RuleRuntimeCatalog = Omit<RuleCatalog, "markdown" | "rules"> & {
+  rules: RuleRuntimeRecord[];
+};
+
 export type HomebrewFormulaPayload = {
   name: string;
   installed_versions: string[];
@@ -68,6 +110,13 @@ export type Options = {
   help: boolean;
   linters: string[];
   nativeArgs: string[];
+  enable?: boolean;
+  language?: string;
+  plugin?: string;
+  rule?: boolean;
+  ruleId?: string;
+  rules?: boolean;
+  search?: string;
   styleguide: boolean;
   update: boolean;
   version: boolean;

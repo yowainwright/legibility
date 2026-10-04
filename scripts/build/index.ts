@@ -1,4 +1,5 @@
 import { chmodSync, mkdirSync, statSync, writeFileSync } from "node:fs";
+import { rolldown } from "rolldown";
 import packageJson from "../../package.json" with { type: "json" };
 import { logger as createLogger } from "../../src/obs/index.ts";
 import {
@@ -18,10 +19,9 @@ import {
   CLI_SOURCE_FILE,
   NATIVE_RELEASE_FLAG,
   RUNTIME_PACKAGE_NAME,
-  nativeReleaseOutputFile,
 } from "./constants.ts";
 import type { RuntimePackageManifest } from "./types.ts";
-import { runCommand } from "./utils.ts";
+import { nativeReleaseOutputFile, runCommand } from "./utils.ts";
 
 const log = createLogger({ file: BUILD_SCRIPT_LABEL, isLogging: true });
 
@@ -140,33 +140,31 @@ const writeCliEntry = (): void => {
   writeFileSync(CLI_SOURCE_FILE, renderCliEntry());
 };
 
-const bundleCli = (): void => {
-  runBuildCommand("rolldown", [
-    CLI_SOURCE_FILE,
-    "--file",
-    CLI_ENTRY_FILE,
-    "--platform",
-    "node",
-    "--format",
-    "esm",
-    "--banner",
-    CLI_BUNDLE_BANNER,
-  ]);
+const bundleCli = async (): Promise<void> => {
+  const bundle = await rolldown({
+    input: CLI_SOURCE_FILE,
+    platform: "node",
+    resolve: { mainFields: ["module", "main"] },
+  });
+  try {
+    await bundle.write({ banner: CLI_BUNDLE_BANNER, file: CLI_ENTRY_FILE, format: "esm" });
+  } finally {
+    await bundle.close();
+  }
   chmodSync(CLI_ENTRY_FILE, 0o755);
 };
 
-const bundleRuntime = (): void => {
-  runBuildCommand("rolldown", [
-    BIN_RUNTIME_ENTRY_FILE,
-    "--file",
-    BIN_BUNDLE_FILE,
-    "--platform",
-    "node",
-    "--format",
-    "cjs",
-    "--banner",
-    BIN_BUNDLE_BANNER,
-  ]);
+const bundleRuntime = async (): Promise<void> => {
+  const bundle = await rolldown({
+    input: BIN_RUNTIME_ENTRY_FILE,
+    platform: "node",
+    resolve: { mainFields: ["module", "main"] },
+  });
+  try {
+    await bundle.write({ banner: BIN_BUNDLE_BANNER, file: BIN_BUNDLE_FILE, format: "cjs" });
+  } finally {
+    await bundle.close();
+  }
 };
 
 const compileBinary = (outputFile: string): void => {
@@ -185,21 +183,25 @@ const printBinarySize = (outputFile: string): void => {
   log.print(`Built ${outputFile} (${sizeInMb}MB)`);
 };
 
-const buildBinary = (): void => {
+const generateRuleCatalog = (): void =>
+  runBuildCommand(process.execPath, ["--experimental-strip-types", "scripts/rules/index.ts"]);
+
+const buildBinary = async (): Promise<void> => {
   const buildArguments = new Set(process.argv.slice(2));
+  generateRuleCatalog();
   writeCliEntry();
-  bundleCli();
+  await bundleCli();
   if (buildArguments.has(CLI_ONLY_FLAG)) return;
   const isReleaseBuild = buildArguments.has(NATIVE_RELEASE_FLAG);
   const outputFile = isReleaseBuild ? nativeReleaseOutputFile() : BIN_OUTPUT_FILE;
   writeBinarySources();
-  bundleRuntime();
+  await bundleRuntime();
   compileBinary(outputFile);
   printBinarySize(outputFile);
 };
 
 try {
-  buildBinary();
+  await buildBinary();
 } catch (error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
   log.fail(message);

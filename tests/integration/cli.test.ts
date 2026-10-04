@@ -11,6 +11,7 @@ import {
 } from "node:fs";
 import test from "node:test";
 import { delimiter, join } from "node:path";
+import { parse as parseJsonc } from "jsonc-parser";
 import { commandIsAvailable, readSource, runLinters } from "../../src/cli/index.ts";
 import type { Options, Source } from "../../src/cli/types.ts";
 
@@ -85,6 +86,34 @@ const source = (root: string, linters: Source["config"]["linters"]): Source => (
     updates: { enabled: true, manager: "brew", prompt: true },
   },
 });
+
+const cliPath = join(process.cwd(), "bin", "js", "legibility");
+const oxlintPath = join(process.cwd(), "node_modules", ".bin", "oxlint");
+const enableRuleArgs = [
+  "rule",
+  "LEG038",
+  "--language",
+  "javascript",
+  "--plugin",
+  "oxlint",
+  "--enable",
+];
+
+const runCli = (root: string, args: string[]) => {
+  const cliArguments = ["--experimental-strip-types", cliPath].concat(args);
+  return spawnSync(process.execPath, cliArguments, { cwd: root, encoding: "utf8" });
+};
+
+const runNativeLineBudget = (root: string, lineCount: number) => {
+  const functionBody = Array.from({ length: lineCount - 2 }, () => "  void 1;").join("\n");
+  const sourcePath = join(root, "src", "index.js");
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(sourcePath, `function measure() {\n${functionBody}\n}\nmeasure();\n`);
+  return spawnSync(oxlintPath, ["--deny", "max-lines-per-function", "src/index.js"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+};
 
 test("preserves unknown config and linter fields", (t) => {
   const fixture = createFixture();
@@ -190,6 +219,76 @@ test("runs the packaged JavaScript entrypoint for help and version", () => {
   assert.match(help.stdout, /Usage: legibility/);
   assert.equal(version.status, 0);
   assert.match(version.stdout, /legibility version \d+\.\d+\.\d+/);
+});
+
+test("searches and inspects rules without starting project setup", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const search = runCli(fixture.root, ["rules", "--search", "function length"]);
+  const details = runCli(fixture.root, [
+    "rule",
+    "LEG038",
+    "--language",
+    "javascript",
+    "--plugin",
+    "oxlint",
+  ]);
+  const searchOutput = `${search.stdout}\n${search.stderr}`;
+  const detailOutput = `${details.stdout}\n${details.stderr}`;
+
+  assert.equal(search.status, 0, searchOutput);
+  assert.match(searchOutput, /2 of 62 rules match/);
+  assert.match(searchOutput, /Details: \/docs\/rules\/LEG038\//);
+  assert.equal(details.status, 0, detailOutput);
+  assert.match(detailOutput, /Project: disabled/);
+  assert.match(detailOutput, /Docs: \/docs\/rules\/LEG038\/javascript\/oxlint\//);
+  assert.equal(existsSync(join(fixture.root, "legibility.json")), false);
+});
+
+test("enables LEG038 in JSONC and its settings change Oxlint's line budget", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const configPath = join(fixture.root, ".oxlintrc.jsonc");
+  const original =
+    '{\n  // keep this comment\n  "rules": {\n    "max-lines-per-function": "off",\n    "no-debugger": "warn"\n  }\n}\n';
+  writeFileSync(configPath, original);
+  const dryRun = runCli(fixture.root, enableRuleArgs.concat("--dry-run"));
+  const dryRunOutput = `${dryRun.stdout}\n${dryRun.stderr}`;
+  assert.equal(dryRun.status, 0, dryRunOutput);
+  assert.match(dryRunOutput, /Would set \.oxlintrc\.jsonc rules\.max-lines-per-function/);
+  assert.equal(readFileSync(configPath, "utf8"), original);
+  const enabled = runCli(fixture.root, enableRuleArgs);
+  assert.equal(enabled.status, 0, `${enabled.stdout}\n${enabled.stderr}`);
+  const updated = readFileSync(configPath, "utf8");
+  const configuration = parseJsonc(updated) as { rules: Record<string, unknown> };
+  assert.match(updated, /\/\/ keep this comment/);
+  assert.equal(configuration.rules["no-debugger"], "warn");
+  assert.deepEqual(configuration.rules["max-lines-per-function"], [
+    "warn",
+    { max: 40, skipBlankLines: true, skipComments: true, IIFEs: true },
+  ]);
+  const atLimit = runNativeLineBudget(fixture.root, 40);
+  assert.equal(atLimit.status, 0, `${atLimit.stdout}\n${atLimit.stderr}`);
+  const overLimit = runNativeLineBudget(fixture.root, 41);
+  assert.equal(overLimit.status, 1, `${overLimit.stdout}\n${overLimit.stderr}`);
+  assert.match(`${overLimit.stdout}\n${overLimit.stderr}`, /max-lines-per-function/);
+  const repeated = runCli(fixture.root, enableRuleArgs);
+  assert.equal(repeated.status, 0, `${repeated.stdout}\n${repeated.stderr}`);
+  assert.equal(readFileSync(configPath, "utf8"), updated);
+});
+
+test("refuses to enable a rule through file overrides", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const configPath = join(fixture.root, ".oxlintrc.json");
+  const original = JSON.stringify({ overrides: [{ files: ["src/**"], rules: {} }], rules: {} });
+  writeFileSync(configPath, original);
+  const result = runCli(fixture.root, enableRuleArgs);
+  const output = `${result.stdout}\n${result.stderr}`;
+
+  assert.equal(result.status, 2);
+  assert.match(output, /does not edit Oxlint configs with extends or file overrides/);
+  assert.equal(readFileSync(configPath, "utf8"), original);
 });
 
 test("rejects ambiguous parent and child configurations", (t) => {

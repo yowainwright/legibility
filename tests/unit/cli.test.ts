@@ -61,6 +61,29 @@ test("parses CLI options separately from native linter arguments", () => {
   });
 });
 
+test("parses rule search and language/plugin selection", () => {
+  const search = parseOptions(["rules", "--search", "function length"]);
+  const detail = parseOptions([
+    "rule",
+    "LEG038",
+    "--language",
+    "javascript",
+    "--plugin",
+    "oxlint",
+    "--enable",
+    "--dry-run",
+  ]);
+
+  assert.equal(search.rules, true);
+  assert.equal(search.search, "function length");
+  assert.equal(detail.rule, true);
+  assert.equal(detail.ruleId, "LEG038");
+  assert.equal(detail.language, "javascript");
+  assert.equal(detail.plugin, "oxlint");
+  assert.equal(detail.enable, true);
+  assert.equal(detail.dryRun, true);
+});
+
 test("parses the Homebrew update command", () => {
   const parsed = parseOptions(["update", "--linter", "fs-lint"]);
 

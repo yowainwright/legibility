@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "newFiles": {
+    "default": "deny",
+    "allow": [
+      "cmd/*/main.go",
+      "cmd/*/main_test.go",
+      "internal/cli/{cli,cli_test}.go",
+      "internal/config/{config,config_test}.go",
+      "internal/dx/{dx,dx_test}.go",
+      "internal/obs/{obs,obs_test}.go",
+      "internal/prompts/{prompts,prompts_test}.go",
+      "internal/registry/{registry,registry_test}.go",
+      "internal/rules/{rules,rules_test}.go",
+      "internal/rules/rules.json",
+      "internal/fp/{fp,fp_test}.go",
+      "**/testdata/**",
+      "go.mod",
+      "go.sum",
+      "Makefile",
+      ".legibilityrc",
+      ".golangci.yml",
+      ".custom-gcl.yml",
+      "fs-lint.json",
+      "docs/**",
+      "tmpl/**",
+      ".github/**",
+      "skills/**"
+    ]
+  }
+}

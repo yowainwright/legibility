@@ -17,6 +17,7 @@
   },
   "files": [
     "bin/js/legibility",
+    "docs",
     "skills",
     "src"
   ],
@@ -29,6 +30,7 @@
     "cli": "node --experimental-strip-types ./scripts/build/index.ts --cli-only && node ./bin/js/legibility",
     "build:native": "node --experimental-strip-types ./scripts/build/index.ts",
     "build:native:release": "node --experimental-strip-types ./scripts/build/index.ts --release",
+    "rules:generate": "node --experimental-strip-types ./scripts/rules/index.ts",
     "check": "pnpm run format && pnpm run lint && pnpm run typecheck && pnpm run build",
     "format": "oxfmt --config scripts/oxfmtrc.json --check .",
     "format:fix": "oxfmt --config scripts/oxfmtrc.json --write .",
@@ -59,18 +61,25 @@
     "release:rc": "release-it --preRelease=rc",
     "release:rc:dry": "release-it --preRelease=rc --dry-run"
   },
+  "dependencies": {
+    "jsonc-parser": "^3.3.1"
+  },
   "devDependencies": {
     "@types/node": "26.4.1",
     "codependence": "^1.0.15",
     "eslint-plugin-legibility": "0.3.3",
+    "github-slugger": "^2.0.0",
     "oxfmt": "^0.63.0",
     "oxlint": "^1.81.0",
     "pastoralist": "1.13.2",
     "release-it": "21.0.3",
+    "remark-gfm": "^4.0.1",
+    "remark-parse": "^11.0.0",
     "rolldown": "1.2.5",
     "scriptc": "^0.0.35",
     "turbo": "2.10.12",
-    "typescript": "7.0.2"
+    "typescript": "7.0.2",
+    "unified": "^11.0.5"
   },
   "engines": {
     "node": ">=24"

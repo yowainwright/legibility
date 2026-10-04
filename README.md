@@ -4,6 +4,10 @@ Legibility cli exposes linters with rules that normalize code for legiblity in t
 
 Reading massive amounts of code everyday is not sustainable. Grokking prompts vs text vs contexts is not sustainable. Legbility linters and rules are built to normalize software across language and architecture for human legiblity.
 
+## Documentation
+
+[Shared rules](docs/rules.md) define rule IDs, language coverage, examples, and configuration. See the [documentation index](docs/README.md).
+
 ## Install
 
 The npm package requires Node 24 or newer:
@@ -56,6 +60,22 @@ legibility --linter oxlint-plugin-legibility -- --deny-warnings
 ```
 
 Non-interactive runs must use an existing configuration. Legibility does not create project configuration when no terminal is available.
+
+Search and inspect the shared rule catalog from any directory. Search terms use AND matching across IDs, names, descriptions, examples, topic tags, language mappings, and coverage:
+
+```sh
+legibility rules --search "function length"
+legibility rule LEG038 --language javascript --plugin oxlint
+```
+
+Enable a documented Oxlint mapping with a preview first:
+
+```sh
+legibility rule LEG038 --language javascript --plugin oxlint --enable --dry-run
+legibility rule LEG038 --language javascript --plugin oxlint --enable
+```
+
+Automatic edits support simple `.oxlintrc.json` and `.oxlintrc.jsonc` files. Configs with inheritance, file overrides, nested configs, or TypeScript config files are reported as unsupported for automatic edits.
 
 ## api
 

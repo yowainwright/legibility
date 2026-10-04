@@ -1,4 +1,5 @@
 import { spawnSync } from "node:child_process";
+import { BIN_OUTPUT_DIR } from "./constants.ts";
 import type { BuildLogger } from "./types.ts";
 
 const printOutput = (logger: BuildLogger, stdout?: string, stderr?: string): void => {
@@ -14,4 +15,9 @@ export const runCommand = (command: string, args: readonly string[], logger: Bui
   printOutput(logger, result.stdout, result.stderr);
   if (result.error) throw result.error;
   throw new Error(`${command} exited with status ${result.status ?? 1}`);
+};
+
+export const nativeReleaseOutputFile = (): string => {
+  const architecture = process.arch === "x64" ? "amd64" : process.arch;
+  return `${BIN_OUTPUT_DIR}/legibility-${process.platform}-${architecture}`;
 };
