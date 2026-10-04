@@ -263,6 +263,19 @@ const createSelectorState = (choices: PromptChoice[]): SelectorState => ({
   viewportStart: 0,
 });
 
+const createSelectorRuntime = (
+  message: string,
+  choices: PromptChoice[],
+  mode: SelectorMode,
+): SelectorRuntime => ({
+  message,
+  choices,
+  mode,
+  state: createSelectorState(choices),
+  previousLineCount: 0,
+  isFinished: false,
+});
+
 const renderSelector = (runtime: SelectorRuntime): void => {
   const frame = formatChoiceFrame({
     message: runtime.message,
@@ -288,6 +301,24 @@ const cleanupSelector = (handlers: SelectorHandlers): void => {
   process.stdout.write(ANSI.SHOW_CURSOR);
 };
 
+const renderSelectorFinish = (runtime: SelectorRuntime, error: Error | undefined): void => {
+  const lines = error
+    ? cancelFrame(runtime.message)
+    : finalFrame(runtime.message, runtime.choices, runtime.state, runtime.mode);
+  writeFrame(lines, runtime.previousLineCount);
+  process.stdout.write("\n");
+};
+
+const settleSelector = (
+  runtime: SelectorRuntime,
+  error: Error | undefined,
+  resolve: (value: string[]) => void,
+  reject: (reason?: unknown) => void,
+): void => {
+  if (error) return reject(error);
+  resolve(selectedValues(runtime.choices, runtime.state, runtime.mode));
+};
+
 const finishSelector = ({
   runtime,
   handlers,
@@ -304,16 +335,45 @@ const finishSelector = ({
   if (runtime.isFinished) return;
   runtime.isFinished = true;
   cleanupSelector(handlers);
-  const lines = error
-    ? cancelFrame(runtime.message)
-    : finalFrame(runtime.message, runtime.choices, runtime.state, runtime.mode);
-  writeFrame(lines, runtime.previousLineCount);
-  process.stdout.write("\n");
-  if (error) {
-    reject(error);
-    return;
+  renderSelectorFinish(runtime, error);
+  settleSelector(runtime, error, resolve, reject);
+};
+
+const handleSelectorShortcut = (
+  runtime: SelectorRuntime,
+  input: string | undefined,
+  key: PromptKey,
+  render: () => void,
+): void => {
+  const shortcut = input?.toLowerCase() ?? "";
+  if (!["a", "n"].includes(shortcut)) return;
+  Object.assign(runtime.state, updateSelected(runtime.state, input, key, runtime.choices));
+  render();
+};
+
+const handleSelectorExitKey = (
+  input: string | undefined,
+  key: PromptKey,
+  finish: SelectorFinish,
+): boolean => {
+  if (isCancelKey(input, key)) {
+    finish(promptCancelled());
+    return true;
   }
-  resolve(selectedValues(runtime.choices, runtime.state, runtime.mode));
+  if (!isConfirmKey(key)) return false;
+  finish();
+  return true;
+};
+
+const handleSelectorDirection = (
+  runtime: SelectorRuntime,
+  direction: number,
+  render: () => void,
+): boolean => {
+  if (direction === 0) return false;
+  Object.assign(runtime.state, moveSelector(runtime.state, direction, runtime.choices));
+  render();
+  return true;
 };
 
 const handleSelectorKeypress = ({
@@ -329,21 +389,12 @@ const handleSelectorKeypress = ({
   finish: SelectorFinish;
   render: () => void;
 }): void => {
-  if (isCancelKey(input, key)) return finish(promptCancelled());
-  if (isConfirmKey(key)) return finish();
+  if (handleSelectorExitKey(input, key, finish)) return;
   const direction = cursorDirection(key);
-  if (direction !== 0) {
-    Object.assign(runtime.state, moveSelector(runtime.state, direction, runtime.choices));
-    render();
-    return;
-  }
+  if (handleSelectorDirection(runtime, direction, render)) return;
   const isSpace = input === " " || key.name === "space";
   if (isSpace) return toggleSelectorChoice(runtime, key, render);
-  const shortcut = input?.toLowerCase() ?? "";
-  const isSelectionKey = ["a", "n"].includes(shortcut);
-  if (!isSelectionKey) return;
-  Object.assign(runtime.state, updateSelected(runtime.state, input, key, runtime.choices));
-  render();
+  handleSelectorShortcut(runtime, input, key, render);
 };
 
 const createSelectorHandlers = (
@@ -354,23 +405,27 @@ const createSelectorHandlers = (
   onKeypress: (input, key = {}) => handleSelectorKeypress({ runtime, input, key, finish, render }),
 });
 
+const selectorInputAvailable = (): boolean => {
+  const hasRawMode = typeof process.stdin.setRawMode === "function";
+  return hasInteractiveTerminal() && hasRawMode;
+};
+
+const startSelectorInput = (handlers: SelectorHandlers): void => {
+  readline.emitKeypressEvents(process.stdin);
+  process.stdin.setRawMode(true);
+  process.stdin.resume();
+  process.stdin.on("keypress", handlers.onKeypress);
+  process.stdout.write(ANSI.HIDE_CURSOR);
+};
+
 const setupSelector = (
   handlers: SelectorHandlers,
   render: () => void,
   reject: (reason?: unknown) => void,
 ): void => {
   try {
-    const hasRawMode = typeof process.stdin.setRawMode === "function";
-    const isInteractive = hasInteractiveTerminal() && hasRawMode;
-    if (!isInteractive) {
-      reject(new Error("Interactive prompt input is unavailable"));
-      return;
-    }
-    readline.emitKeypressEvents(process.stdin);
-    process.stdin.setRawMode(true);
-    process.stdin.resume();
-    process.stdin.on("keypress", handlers.onKeypress);
-    process.stdout.write(ANSI.HIDE_CURSOR);
+    if (!selectorInputAvailable()) throw new Error("Interactive prompt input is unavailable");
+    startSelectorInput(handlers);
     render();
   } catch (error: unknown) {
     cleanupSelector(handlers);
@@ -428,6 +483,26 @@ const handleNativeSelectorKey = (
   handleSelectorKeypress({ runtime, input, key, finish, render });
 };
 
+const createNativeInputReader = (
+  promptKey: PromptKeyReader,
+  runtime: SelectorRuntime,
+  finish: SelectorFinish,
+  render: () => void,
+): (() => Promise<void>) => {
+  let pendingInput = "";
+  const readNext = async (): Promise<void> => {
+    pendingInput += await promptKey();
+    const parsed = splitNativeInput(pendingInput);
+    pendingInput = parsed.remainder;
+    for (const input of parsed.keys) {
+      handleNativeSelectorKey(runtime, input, finish, render);
+      if (runtime.isFinished) return;
+    }
+    if (!runtime.isFinished) await readNext();
+  };
+  return readNext;
+};
+
 const runNativeSelector = (
   message: string,
   choices: PromptChoice[],
@@ -436,33 +511,30 @@ const runNativeSelector = (
   const promptKey = nativePromptKey;
   if (!promptKey) return Promise.reject(new Error("Native prompt input is unavailable"));
   return new Promise((resolve, reject) => {
-    const runtime: SelectorRuntime = {
-      message,
-      choices,
-      mode,
-      state: createSelectorState(choices),
-      previousLineCount: 0,
-      isFinished: false,
-    };
+    const runtime = createSelectorRuntime(message, choices, mode);
     const render = (): void => renderSelector(runtime);
     const handlers: SelectorHandlers = { onKeypress: () => undefined };
     const finish = (error?: Error): void =>
       finishSelector({ runtime, handlers, error, resolve, reject });
-    let pendingInput = "";
-    const readNext = async (): Promise<void> => {
-      pendingInput += await promptKey();
-      const parsed = splitNativeInput(pendingInput);
-      pendingInput = parsed.remainder;
-      for (const input of parsed.keys) {
-        handleNativeSelectorKey(runtime, input, finish, render);
-        if (runtime.isFinished) return;
-      }
-      if (!runtime.isFinished) await readNext();
-    };
+    const readNext = createNativeInputReader(promptKey, runtime, finish, render);
     render();
     void readNext().catch(reject);
   });
 };
+
+const runInteractiveSelector = (
+  message: string,
+  choices: PromptChoice[],
+  mode: SelectorMode,
+): Promise<string[]> =>
+  new Promise((resolve, reject) => {
+    const runtime = createSelectorRuntime(message, choices, mode);
+    const render = (): void => renderSelector(runtime);
+    const finish = (error?: Error): void =>
+      finishSelector({ runtime, handlers, error, resolve, reject });
+    const handlers = createSelectorHandlers(runtime, finish, render);
+    setupSelector(handlers, render, reject);
+  });
 
 const runSelector = (
   message: string,
@@ -473,21 +545,7 @@ const runSelector = (
   const hasSelectableChoice = choices.some((choice) => !isDisabled(choice));
   if (!hasSelectableChoice) return Promise.resolve([]);
   if (nativePromptKey) return runNativeSelector(message, choices, mode);
-  return new Promise((resolve, reject) => {
-    const runtime: SelectorRuntime = {
-      message,
-      choices,
-      mode,
-      state: createSelectorState(choices),
-      previousLineCount: 0,
-      isFinished: false,
-    };
-    const render = (): void => renderSelector(runtime);
-    const finish = (error?: Error): void =>
-      finishSelector({ runtime, handlers, error, resolve, reject });
-    const handlers = createSelectorHandlers(runtime, finish, render);
-    setupSelector(handlers, render, reject);
-  });
+  return runInteractiveSelector(message, choices, mode);
 };
 
 const askLine = (message: string): Promise<string> =>

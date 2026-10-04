@@ -101,16 +101,8 @@ export const promptForLinterInstall = async (
   return promptCheckbox("Which native linters should be installed?", choices);
 };
 
-export const promptForLinters = (
-  languages: string[],
-  root: string,
-  isAvailable: CommandAvailability,
-): Promise<string[] | undefined> => {
-  const candidates = candidateLinters(languages);
-  const available = candidates.filter(({ command }) => isAvailable(command, root));
-  if (available.length === 0) return Promise.resolve(undefined);
-  const availableIds = new Set(available.map(({ id }) => id));
-  const choices = candidates.map(({ id, command, description }) => {
+const linterChoices = (candidates: LinterDefinition[], availableIds: Set<string>) =>
+  candidates.map(({ id, command, description }) => {
     const isInstalled = availableIds.has(id);
     return {
       name: id,
@@ -120,6 +112,17 @@ export const promptForLinters = (
       disabled: linterDisabledState(isInstalled),
     };
   });
+
+export const promptForLinters = (
+  languages: string[],
+  root: string,
+  isAvailable: CommandAvailability,
+): Promise<string[] | undefined> => {
+  const candidates = candidateLinters(languages);
+  const available = candidates.filter(({ command }) => isAvailable(command, root));
+  if (available.length === 0) return Promise.resolve(undefined);
+  const availableIds = new Set(available.map(({ id }) => id));
+  const choices = linterChoices(candidates, availableIds);
   return promptCheckbox("Which linters should run?", choices, true);
 };
 
@@ -138,28 +141,26 @@ export const promptForLinterConfig = async (names: string[]): Promise<Record<str
   return linters;
 };
 
-export const setupSource = (
-  root: string,
-  languages: string[],
-  linters: Record<string, Linter>,
-): Source => {
+const setupConfig = (languages: string[], linters: Record<string, Linter>): Source["config"] => {
   const configuredLanguages = Object.fromEntries(
     languages.map((language) => [language, {} as JsonObject]),
   );
   return {
-    path: "interactive",
-    root,
-    config: {
-      languages: configuredLanguages,
-      linters,
-      updates: {
-        enabled: true,
-        manager: "brew",
-        prompt: true,
-      },
+    languages: configuredLanguages,
+    linters,
+    updates: {
+      enabled: true,
+      manager: "brew",
+      prompt: true,
     },
   };
 };
+
+export const setupSource = (
+  root: string,
+  languages: string[],
+  linters: Record<string, Linter>,
+): Source => ({ path: "interactive", root, config: setupConfig(languages, linters) });
 
 export const saveSetupSource = (source: Source): string => {
   const path = join(source.root, "legibility.json");
@@ -188,7 +189,30 @@ const commandLines = (): string[] => [
   "  $ oxlint . --config oxlint.config.ts --deny-warnings",
 ];
 
-export const formatStyleguide = (): string => {
+const welcomeSections = (languageFrame: string[], installFrame: string[]): string[] => [
+  section("01  Welcome", [formatConfirmDemo("Set up Legibility for this project?", false)]),
+  section("02  Detect languages", languageFrame),
+  section(
+    "03  Install native linters",
+    [formatConfirmDemo("Install all available native linters?", true)].concat(installFrame),
+  ),
+];
+
+const selectionSections = (linterFrame: string[]): string[] => [
+  section("04  Select available linters", linterFrame),
+  section("05  Configure native arguments", [
+    formatInputDemo("Arguments for oxlint-plugin-legibility (optional)", "--deny-warnings"),
+  ]),
+  section("06  Review and save", reviewLines()),
+  section("07  Preview commands", commandLines()),
+  section("08  Approve execution", [formatConfirmDemo("Run these linters now?", false)]),
+];
+
+const cancellationSections = (cancellationLine: string): string[] => [
+  section("09  Cancellation", [cancellationLine]),
+];
+
+const styleguideFrames = () => {
   const languageFrame = formatCheckboxDemo(
     "Which languages should Legibility check?",
     STYLEGUIDE_LANGUAGE_CHOICES,
@@ -198,28 +222,26 @@ export const formatStyleguide = (): string => {
     "Which native linters should be installed?",
     STYLEGUIDE_INSTALL_CHOICES,
   );
+  return { languageFrame, linterFrame, installFrame };
+};
+
+export const formatStyleguide = (): string => {
+  const { languageFrame, linterFrame, installFrame } = styleguideFrames();
   const cancellationLine = `${ANSI.RED}${STYLEGUIDE_CANCEL_MARK}${ANSI.RESET} Which linters should run?: cancelled`;
+  const title = `${ANSI.BOLD}${ANSI.CYAN}Legibility CLI Styleguide${ANSI.RESET}`;
+  const startSections = welcomeSections(languageFrame, installFrame);
+  const middleSections = selectionSections(linterFrame);
+  const endSections = cancellationSections(cancellationLine);
+  const sections = startSections.concat(middleSections, endSections);
+  const separator = `${ANSI.GRAY}────────────────────────────────────────────────────────────────────${ANSI.RESET}`;
+  const keyboard = `${ANSI.GRAY}Keyboard: ↑/↓ navigate · Space toggle · a all · n none · Enter confirm · Esc cancel${ANSI.RESET}`;
   return [
-    `${ANSI.BOLD}${ANSI.CYAN}Legibility CLI Styleguide${ANSI.RESET}`,
+    title,
     "A visual tour of the guided project setup. No files are written and no linters run.",
-    `${ANSI.GRAY}────────────────────────────────────────────────────────────────────${ANSI.RESET}`,
-    section("01  Welcome", [formatConfirmDemo("Set up Legibility for this project?", false)]),
-    section("02  Detect languages", languageFrame),
-    section(
-      "03  Install native linters",
-      [formatConfirmDemo("Install all available native linters?", true)].concat(installFrame),
-    ),
-    section("04  Select available linters", linterFrame),
-    section("05  Configure native arguments", [
-      formatInputDemo("Arguments for oxlint-plugin-legibility (optional)", "--deny-warnings"),
-    ]),
-    section("06  Review and save", reviewLines()),
-    section("07  Preview commands", commandLines()),
-    section("08  Approve execution", [formatConfirmDemo("Run these linters now?", false)]),
-    section("09  Cancellation", [cancellationLine]),
-    `${ANSI.GRAY}────────────────────────────────────────────────────────────────────${ANSI.RESET}`,
-    `${ANSI.GRAY}Keyboard: ↑/↓ navigate · Space toggle · a all · n none · Enter confirm · Esc cancel${ANSI.RESET}`,
-  ].join("\n\n");
+    separator,
+  ]
+    .concat(sections, separator, keyboard)
+    .join("\n\n");
 };
 
 export { commandLines, reviewLines };

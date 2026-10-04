@@ -115,6 +115,89 @@ const runNativeLineBudget = (root: string, lineCount: number) => {
   });
 };
 
+const runConfiguredCli = (root: string, args: string[], environment: Record<string, string>) =>
+  spawnSync(process.execPath, ["--experimental-strip-types", cliPath].concat(args), {
+    cwd: root,
+    encoding: "utf8",
+    env: Object.assign({}, process.env, environment),
+  });
+
+const assertRuleCatalogAccess = (root: string): void => {
+  const search = runCli(root, ["rules", "--search", "function length"]);
+  const details = runCli(root, [
+    "rule",
+    "LEG038",
+    "--language",
+    "javascript",
+    "--plugin",
+    "oxlint",
+  ]);
+  const searchOutput = `${search.stdout}\n${search.stderr}`;
+  const detailOutput = `${details.stdout}\n${details.stderr}`;
+  assert.equal(search.status, 0, searchOutput);
+  assert.match(searchOutput, /2 of 62 rules match/);
+  assert.match(searchOutput, /Details: \/docs\/rules\/LEG038\//);
+  assert.equal(details.status, 0, detailOutput);
+  assert.match(detailOutput, /Project: disabled/);
+  assert.match(detailOutput, /Docs: \/docs\/rules\/LEG038\/javascript\/oxlint\//);
+  assert.equal(existsSync(join(root, "legibility.json")), false);
+};
+
+const assertRuleEnableDryRun = (root: string, configPath: string, original: string): void => {
+  const dryRun = runCli(root, enableRuleArgs.concat("--dry-run"));
+  const dryRunOutput = `${dryRun.stdout}\n${dryRun.stderr}`;
+  assert.equal(dryRun.status, 0, dryRunOutput);
+  assert.match(dryRunOutput, /Would set \.oxlintrc\.jsonc rules\.max-lines-per-function/);
+  assert.equal(readFileSync(configPath, "utf8"), original);
+};
+
+const assertRuleEnableSettings = (configPath: string): string => {
+  const updated = readFileSync(configPath, "utf8");
+  const configuration = parseJsonc(updated) as { rules: Record<string, unknown> };
+  assert.match(updated, /\/\/ keep this comment/);
+  assert.equal(configuration.rules["no-debugger"], "warn");
+  assert.deepEqual(configuration.rules["max-lines-per-function"], [
+    "warn",
+    { max: 40, skipBlankLines: true, skipComments: true, IIFEs: true },
+  ]);
+  return updated;
+};
+
+const assertRuleLineBudget = (root: string): void => {
+  const atLimit = runNativeLineBudget(root, 40);
+  assert.equal(atLimit.status, 0, `${atLimit.stdout}\n${atLimit.stderr}`);
+  const overLimit = runNativeLineBudget(root, 41);
+  const overLimitOutput = `${overLimit.stdout}\n${overLimit.stderr}`;
+  assert.equal(overLimit.status, 1, overLimitOutput);
+  assert.match(overLimitOutput, /max-lines-per-function/);
+};
+
+const assertRuleEnableIsIdempotent = (root: string, configPath: string, updated: string): void => {
+  const repeated = runCli(root, enableRuleArgs);
+  assert.equal(repeated.status, 0, `${repeated.stdout}\n${repeated.stderr}`);
+  assert.equal(readFileSync(configPath, "utf8"), updated);
+};
+
+const restoreEnvironment = (previousValues: Record<string, string | undefined>): void => {
+  Object.entries(previousValues).forEach(([name, value]) => {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  });
+};
+
+const assertConfiguredRun = (
+  result: ReturnType<typeof spawnSync>,
+  brewLogPath: string,
+  linterLogPath: string,
+): void => {
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.equal(
+    readFileSync(brewLogPath, "utf8"),
+    "update\noutdated --json=v2 --formula\nupgrade fs-lint\n",
+  );
+  assert.equal(readFileSync(linterLogPath, "utf8"), "check\n");
+};
+
 test("preserves unknown config and linter fields", (t) => {
   const fixture = createFixture();
   t.after(fixture.cleanup);
@@ -224,25 +307,7 @@ test("runs the packaged JavaScript entrypoint for help and version", () => {
 test("searches and inspects rules without starting project setup", (t) => {
   const fixture = createFixture();
   t.after(fixture.cleanup);
-  const search = runCli(fixture.root, ["rules", "--search", "function length"]);
-  const details = runCli(fixture.root, [
-    "rule",
-    "LEG038",
-    "--language",
-    "javascript",
-    "--plugin",
-    "oxlint",
-  ]);
-  const searchOutput = `${search.stdout}\n${search.stderr}`;
-  const detailOutput = `${details.stdout}\n${details.stderr}`;
-
-  assert.equal(search.status, 0, searchOutput);
-  assert.match(searchOutput, /2 of 62 rules match/);
-  assert.match(searchOutput, /Details: \/docs\/rules\/LEG038\//);
-  assert.equal(details.status, 0, detailOutput);
-  assert.match(detailOutput, /Project: disabled/);
-  assert.match(detailOutput, /Docs: \/docs\/rules\/LEG038\/javascript\/oxlint\//);
-  assert.equal(existsSync(join(fixture.root, "legibility.json")), false);
+  assertRuleCatalogAccess(fixture.root);
 });
 
 test("enables LEG038 in JSONC and its settings change Oxlint's line budget", (t) => {
@@ -252,29 +317,12 @@ test("enables LEG038 in JSONC and its settings change Oxlint's line budget", (t)
   const original =
     '{\n  // keep this comment\n  "rules": {\n    "max-lines-per-function": "off",\n    "no-debugger": "warn"\n  }\n}\n';
   writeFileSync(configPath, original);
-  const dryRun = runCli(fixture.root, enableRuleArgs.concat("--dry-run"));
-  const dryRunOutput = `${dryRun.stdout}\n${dryRun.stderr}`;
-  assert.equal(dryRun.status, 0, dryRunOutput);
-  assert.match(dryRunOutput, /Would set \.oxlintrc\.jsonc rules\.max-lines-per-function/);
-  assert.equal(readFileSync(configPath, "utf8"), original);
+  assertRuleEnableDryRun(fixture.root, configPath, original);
   const enabled = runCli(fixture.root, enableRuleArgs);
   assert.equal(enabled.status, 0, `${enabled.stdout}\n${enabled.stderr}`);
-  const updated = readFileSync(configPath, "utf8");
-  const configuration = parseJsonc(updated) as { rules: Record<string, unknown> };
-  assert.match(updated, /\/\/ keep this comment/);
-  assert.equal(configuration.rules["no-debugger"], "warn");
-  assert.deepEqual(configuration.rules["max-lines-per-function"], [
-    "warn",
-    { max: 40, skipBlankLines: true, skipComments: true, IIFEs: true },
-  ]);
-  const atLimit = runNativeLineBudget(fixture.root, 40);
-  assert.equal(atLimit.status, 0, `${atLimit.stdout}\n${atLimit.stderr}`);
-  const overLimit = runNativeLineBudget(fixture.root, 41);
-  assert.equal(overLimit.status, 1, `${overLimit.stdout}\n${overLimit.stderr}`);
-  assert.match(`${overLimit.stdout}\n${overLimit.stderr}`, /max-lines-per-function/);
-  const repeated = runCli(fixture.root, enableRuleArgs);
-  assert.equal(repeated.status, 0, `${repeated.stdout}\n${repeated.stderr}`);
-  assert.equal(readFileSync(configPath, "utf8"), updated);
+  const updated = assertRuleEnableSettings(configPath);
+  assertRuleLineBudget(fixture.root);
+  assertRuleEnableIsIdempotent(fixture.root, configPath, updated);
 });
 
 test("refuses to enable a rule through file overrides", (t) => {
@@ -321,24 +369,10 @@ test("updates configured Homebrew linters without prompting when policy allows i
     updates: { enabled: true, manager: "brew", prompt: false },
     linters: { "fs-lint": { enabled: true, args: [] } },
   });
-  const result = spawnSync(
-    process.execPath,
-    [
-      "--experimental-strip-types",
-      join(process.cwd(), "bin", "js", "legibility"),
-      "update",
-      "--config",
-      configPath,
-    ],
-    {
-      cwd: fixture.root,
-      encoding: "utf8",
-      env: Object.assign({}, process.env, {
-        LEGIBILITY_TEST_BREW_LOG: logPath,
-        PATH: testPath(brewDirectory),
-      }),
-    },
-  );
+  const result = runConfiguredCli(fixture.root, ["update", "--config", configPath], {
+    LEGIBILITY_TEST_BREW_LOG: logPath,
+    PATH: testPath(brewDirectory),
+  });
 
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
   assert.equal(
@@ -358,31 +392,12 @@ test("checks for updates before a normal configured run", (t) => {
     updates: { enabled: true, manager: "brew", prompt: false },
     linters: { "fs-lint": { enabled: true, args: ["check"] } },
   });
-  const result = spawnSync(
-    process.execPath,
-    [
-      "--experimental-strip-types",
-      join(process.cwd(), "bin", "js", "legibility"),
-      "--config",
-      configPath,
-    ],
-    {
-      cwd: fixture.root,
-      encoding: "utf8",
-      env: Object.assign({}, process.env, {
-        LEGIBILITY_TEST_BREW_LOG: brewLogPath,
-        LEGIBILITY_TEST_LOG: linterLogPath,
-        PATH: testPath(brewDirectory),
-      }),
-    },
-  );
-
-  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
-  assert.equal(
-    readFileSync(brewLogPath, "utf8"),
-    "update\noutdated --json=v2 --formula\nupgrade fs-lint\n",
-  );
-  assert.equal(readFileSync(linterLogPath, "utf8"), "check\n");
+  const result = runConfiguredCli(fixture.root, ["--config", configPath], {
+    LEGIBILITY_TEST_BREW_LOG: brewLogPath,
+    LEGIBILITY_TEST_LOG: linterLogPath,
+    PATH: testPath(brewDirectory),
+  });
+  assertConfiguredRun(result, brewLogPath, linterLogPath);
 });
 
 test("runs a configured linter from the project bin and returns its exit code", async (t) => {
@@ -390,16 +405,13 @@ test("runs a configured linter from the project bin and returns its exit code", 
   t.after(fixture.cleanup);
   createFakeLinter(fixture.root, "fs-lint");
   const logPath = join(fixture.root, "calls.log");
-  const previousLog = process.env.LEGIBILITY_TEST_LOG;
-  const previousExit = process.env.LEGIBILITY_TEST_EXIT;
+  const previousEnvironment = {
+    LEGIBILITY_TEST_LOG: process.env.LEGIBILITY_TEST_LOG,
+    LEGIBILITY_TEST_EXIT: process.env.LEGIBILITY_TEST_EXIT,
+  };
   process.env.LEGIBILITY_TEST_LOG = logPath;
   process.env.LEGIBILITY_TEST_EXIT = "7";
-  t.after(() => {
-    if (previousLog === undefined) delete process.env.LEGIBILITY_TEST_LOG;
-    else process.env.LEGIBILITY_TEST_LOG = previousLog;
-    if (previousExit === undefined) delete process.env.LEGIBILITY_TEST_EXIT;
-    else process.env.LEGIBILITY_TEST_EXIT = previousExit;
-  });
+  t.after(() => restoreEnvironment(previousEnvironment));
 
   const exitCode = await runLinters(
     source(fixture.root, { "fs-lint": { enabled: true, args: ["check"] } }),

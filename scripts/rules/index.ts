@@ -125,40 +125,41 @@ const duplicates = (values: string[]): string[] => {
   return sorted.filter((value, index) => value === sorted[index - 1]);
 };
 
+const ruleSummaryFromRow = (row: MarkdownNode): RuleSummary => {
+  const cells = childNodes(row);
+  const idMatches = nodeText(cellAt(cells, 0)).match(RULE_ID_PATTERN);
+  const id = idMatches?.[0] ?? "";
+  const name = inlineCodeValues(cellAt(cells, 1))[0] ?? "";
+  const description = nodeText(cellAt(cells, 2));
+  const tags = inlineCodeValues(cellAt(cells, 3));
+  const languages = linkLabels(cellAt(cells, 4));
+  const hasRuleIdentity = id.length > 0 && name.length > 0;
+  const hasDescription = description.length > 0;
+  const hasRuleTopics = tags.length > 0;
+  const hasLanguageMappings = languages.length > 0;
+  const hasCompleteRow = hasRuleIdentity && hasDescription && hasRuleTopics && hasLanguageMappings;
+  if (!hasCompleteRow) throw new Error(`incomplete All rules row: ${nodeText(row).slice(0, 80)}`);
+  return { id, name, description, tags, languages };
+};
+
+const assertUniqueRuleIds = (rules: RuleSummary[]): void => {
+  const ids = rules.map(({ id }) => id);
+  const repeatedIds = duplicates(ids);
+  const hasIds = ids.length > 0;
+  const hasRepeatedIds = repeatedIds.length > 0;
+  const hasInvalidIds = !hasIds || hasRepeatedIds;
+  if (hasInvalidIds) {
+    throw new Error(`invalid All rules IDs: ${repeatedIds.join(", ") || "none found"}`);
+  }
+};
+
 const requiredRules = (nodes: MarkdownNode[]): RuleSummary[] => {
   const sectionIndex = headingIndex(nodes, 2, "All rules");
   if (sectionIndex < 0) throw new Error("missing All rules section");
   const section = sectionAfter(nodes, sectionIndex, 2);
   const table = requiredTable(section, "All rules");
-  const rules = childNodes(table)
-    .slice(1)
-    .map((row) => {
-      const cells = childNodes(row);
-      const idMatches = nodeText(cellAt(cells, 0)).match(RULE_ID_PATTERN);
-      const id = idMatches?.[0] ?? "";
-      const name = inlineCodeValues(cellAt(cells, 1))[0] ?? "";
-      const description = nodeText(cellAt(cells, 2));
-      const tags = inlineCodeValues(cellAt(cells, 3));
-      const languages = linkLabels(cellAt(cells, 4));
-      const hasRuleIdentity = id.length > 0 && name.length > 0;
-      const hasDescription = description.length > 0;
-      const hasRuleTopics = tags.length > 0;
-      const hasLanguageMappings = languages.length > 0;
-      const hasCompleteRow =
-        hasRuleIdentity && hasDescription && hasRuleTopics && hasLanguageMappings;
-      if (!hasCompleteRow) {
-        throw new Error(`incomplete All rules row: ${nodeText(row).slice(0, 80)}`);
-      }
-      return { id, name, description, tags, languages };
-    });
-  const ids = rules.map(({ id }) => id);
-  const repeatedIds = duplicates(ids);
-  const hasIds = ids.length > 0;
-  const hasRepeatedIds = repeatedIds.length > 0;
-  const hasValidIds = hasIds && !hasRepeatedIds;
-  if (!hasValidIds) {
-    throw new Error(`invalid All rules IDs: ${repeatedIds.join(", ") || "none found"}`);
-  }
+  const rules = childNodes(table).slice(1).map(ruleSummaryFromRow);
+  assertUniqueRuleIds(rules);
   return rules;
 };
 
@@ -251,16 +252,17 @@ const isLinkDefinition = (node: MarkdownNode): node is LinkDefinitionNode => {
 const isLinkReference = (node: MarkdownNode): node is LinkReferenceNode =>
   node.type === "linkReference" && node.identifier !== undefined;
 
-const validateLinks = (document: MarkdownNode): void => {
+const linkAnchorIds = (nodesByType: Map<string, MarkdownNode[]>): Set<string> => {
   const slugger = new GithubSlugger();
-  const nodes = Array.from(markdownNodes(document));
-  const nodesByType = Map.groupBy(nodes, ({ type }) => type);
   const headingNodes = nodesByType.get("heading") ?? [];
   const headingAnchors = headingNodes.map((node) => slugger.slug(nodeText(node)));
   const htmlNodes = nodesByType.get("html") ?? [];
   const htmlValues = htmlNodes.map(({ value }) => value ?? "");
   const htmlAnchorIds = htmlValues.flatMap(htmlAnchors);
-  const anchors = new Set(headingAnchors.concat(htmlAnchorIds));
+  return new Set(headingAnchors.concat(htmlAnchorIds));
+};
+
+const localLinkTargets = (nodesByType: Map<string, MarkdownNode[]>): string[] => {
   const linkNodes = nodesByType.get("link") ?? [];
   const definitionNodes = nodesByType.get("definition") ?? [];
   const referenceNodes = nodesByType.get("linkReference") ?? [];
@@ -276,7 +278,14 @@ const validateLinks = (document: MarkdownNode): void => {
   const referenceLinks = references
     .map((id) => definitions.get(id))
     .filter((url): url is string => url !== undefined);
-  const localLinks = links.concat(referenceLinks).filter((url) => url.startsWith("#"));
+  return links.concat(referenceLinks).filter((url) => url.startsWith("#"));
+};
+
+const validateLinks = (document: MarkdownNode): void => {
+  const nodes = Array.from(markdownNodes(document));
+  const nodesByType = Map.groupBy(nodes, ({ type }) => type);
+  const anchors = linkAnchorIds(nodesByType);
+  const localLinks = localLinkTargets(nodesByType);
   const fragments = localLinks.map((url) => decodeURIComponent(url.slice(1)));
   const uniqueFragments = Array.from(new Set(fragments));
   const missingLinks = uniqueFragments.filter((fragment) => !anchors.has(fragment));
@@ -382,6 +391,21 @@ const nativeRuleMapping = (mapping: MarkdownNode): Pick<RuleVariant, "nativeRule
   return { nativeRule, plugin };
 };
 
+const ruleVariantAnchor = (cells: MarkdownNode[]): string =>
+  linkUrls(cellAt(cells, 3))
+    .find((url) => url.startsWith("#"))
+    ?.slice(1) ?? "";
+
+const withRecommendedSettings = (
+  variant: RuleVariant,
+  content: MarkdownNode[],
+  nativeRule: string,
+): RuleVariant => {
+  const recommended = parseConfiguration(content, nativeRule);
+  if (recommended === undefined) return variant;
+  return Object.assign({}, variant, { recommended });
+};
+
 const coverageForLanguages = (
   languages: string[],
   coverageByLanguage: Map<string, RuleCoverage>,
@@ -401,17 +425,11 @@ const parseRuleVariantRow = (request: RuleVariantRowRequest): RuleVariant => {
   const cells = childNodes(row);
   const languageLabel = nodeText(cellAt(cells, 0));
   const { nativeRule, plugin } = nativeRuleMapping(cellAt(cells, 1));
-  const anchor =
-    linkUrls(cellAt(cells, 3))
-      .find((url) => url.startsWith("#"))
-      ?.slice(1) ?? "";
   const languages = languageLabel.split(/\s*\/\s*/u);
   const coverage = coverageForLanguages(languages, coverageByLanguage, ruleId);
-  const heading = `${languageLabel} — ${plugin}`;
-  const content = contentByHeading.get(heading) ?? [];
-  const recommended = parseConfiguration(content, nativeRule);
+  const content = contentByHeading.get(`${languageLabel} — ${plugin}`) ?? [];
   const variant: RuleVariant = {
-    anchor,
+    anchor: ruleVariantAnchor(cells),
     coverage,
     defaultState: defaultRuleState(content),
     languages,
@@ -419,8 +437,7 @@ const parseRuleVariantRow = (request: RuleVariantRowRequest): RuleVariant => {
     plugin,
     settings: nodeText(cellAt(cells, 4)),
   };
-  if (recommended === undefined) return variant;
-  return Object.assign({}, variant, { recommended });
+  return withRecommendedSettings(variant, content, nativeRule);
 };
 
 const contentSectionsByHeading = (section: MarkdownNode[]): Map<string, MarkdownNode[]> => {
