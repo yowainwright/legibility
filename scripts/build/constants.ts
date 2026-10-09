@@ -15,8 +15,3 @@ export const BIN_RUNTIME_TYPES_FILE = `${BIN_RUNTIME_DIR}/index.d.ts`;
 export const BIN_BUNDLE_FILE = `${BIN_RUNTIME_DIR}/index.js`;
 export const BIN_BUNDLE_BANNER = "// @ts-nocheck";
 export const RUNTIME_PACKAGE_NAME = "legibility-runtime";
-
-export const nativeReleaseOutputFile = (): string => {
-  const architecture = process.arch === "x64" ? "amd64" : process.arch;
-  return `${BIN_OUTPUT_DIR}/legibility-${process.platform}-${architecture}`;
-};

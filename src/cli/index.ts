@@ -6,10 +6,19 @@ import {
   existsSync,
   readFileSync,
   readdirSync,
+  writeFileSync,
 } from "node:fs";
-import { basename, delimiter, dirname, extname, join, resolve } from "node:path";
+import { basename, delimiter, dirname, extname, join, relative, resolve } from "node:path";
 import { spawn, spawnSync } from "node:child_process";
 import { parseArgs } from "node:util";
+import ruleCatalogJson from "../rules/search.json" with { type: "json" };
+import {
+  applyEdits,
+  modify,
+  parse as parseJsonc,
+  printParseErrorCode,
+  type ParseError,
+} from "jsonc-parser";
 import {
   CONFIG_FILENAMES,
   HELP_TEXT,
@@ -18,6 +27,7 @@ import {
   LANGUAGE_DEFINITIONS,
   LINTER_DEFINITIONS,
   NO_SETUP_MESSAGE,
+  OXLINT_CONFIG_FILENAMES,
   SETUP_QUESTION,
   STYLEGUIDE_DETECTED_LANGUAGES,
   STYLEGUIDE_INSTALL_CHOICES,
@@ -60,6 +70,9 @@ import type {
   Linter,
   LinterDefinition,
   Options,
+  RuleRuntimeCatalog,
+  RuleRuntimeRecord,
+  RuleVariant,
   Source,
   UpdateConfig,
 } from "./types.ts";
@@ -72,6 +85,8 @@ let nativeCommandRunner: CommandRunner | undefined;
 const setCommandRunner = (commandRunner: CommandRunner | undefined): void => {
   nativeCommandRunner = commandRunner;
 };
+
+const RULE_CATALOG = ruleCatalogJson as RuleRuntimeCatalog;
 
 const isObject = (value: unknown): value is JsonObject => {
   if (typeof value !== "object") return false;
@@ -207,42 +222,154 @@ const linterNames = (value: unknown): string[] => {
   return value as string[];
 };
 
-const parseCommand = (positionals: string[]): boolean => {
-  const command = positionals[0];
-  const hasExtraPositionals = positionals.length > 1;
-  const hasUnsupportedCommand = command !== undefined && command !== "update";
-  const hasUnknownCommand = hasExtraPositionals || hasUnsupportedCommand;
-  if (hasUnknownCommand) throw new Error(`unknown command: ${positionals.join(" ")}`);
-  return command === "update";
+type CliCommand = "rule" | "rules" | "update" | undefined;
+const COMMAND_NAMES = new Set(["rule", "rules", "update"]);
+
+const unexpectedPositionals = (command: CliCommand): never => {
+  if (command === "rule") throw new Error("rule requires a rule ID");
+  throw new Error("unexpected command arguments");
 };
 
-export const parseOptions = (args: string[]): Options => {
+const isCliCommand = (command: string | undefined): command is CliCommand =>
+  command === undefined || COMMAND_NAMES.has(command);
+
+const parseCommand = (positionals: string[]): CliCommand => {
+  const command = positionals[0];
+  if (!isCliCommand(command)) throw new Error(`unknown command: ${positionals.join(" ")}`);
+  let expectedPositionals = 1;
+  if (command === undefined) expectedPositionals = 0;
+  if (command === "rule") expectedPositionals = 2;
+  const hasWrongPositionals = positionals.length !== expectedPositionals;
+  if (hasWrongPositionals) return unexpectedPositionals(command);
+  const requiresRuleId = command === "rule";
+  const hasValidRuleId = /^LEG\d{3}$/iu.test(positionals[1] ?? "");
+  const hasInvalidRuleId = requiresRuleId && !hasValidRuleId;
+  if (hasInvalidRuleId) throw new Error("rule ID must use the form LEG038");
+  return command;
+};
+
+type CatalogOptions = {
+  command: CliCommand;
+  enable: boolean;
+  language?: string;
+  nativeArgs: string[];
+  plugin?: string;
+  search?: string;
+};
+
+const validateCatalogNativeArguments = (options: CatalogOptions): void => {
+  const isCatalogCommand = options.command === "rule" || options.command === "rules";
+  const hasNativeArgs = options.nativeArgs.length > 0;
+  const hasNativeArgsWithCatalogCommand = isCatalogCommand && hasNativeArgs;
+  if (hasNativeArgsWithCatalogCommand) {
+    throw new Error("native arguments after -- are not supported with rule commands");
+  }
+};
+
+const validateRuleOptions = (options: CatalogOptions): void => {
+  const hasRuleFlags =
+    options.language !== undefined || options.plugin !== undefined || options.enable;
+  const hasRuleFlagsOutsideRule = hasRuleFlags && options.command !== "rule";
+  if (hasRuleFlagsOutsideRule) {
+    throw new Error("--language, --plugin, and --enable require the rule command");
+  }
+  const enableMissingLanguage = options.enable && options.language === undefined;
+  const enableMissingPlugin = options.enable && options.plugin === undefined;
+  const hasMissingEnableOption = enableMissingLanguage || enableMissingPlugin;
+  if (hasMissingEnableOption) {
+    throw new Error("--enable requires both --language and --plugin");
+  }
+};
+
+const validateCatalogOptions = (options: CatalogOptions): void => {
+  const hasSearchOutsideRules = options.search !== undefined && options.command !== "rules";
+  if (hasSearchOutsideRules) throw new Error("--search requires the rules command");
+  validateRuleOptions(options);
+  validateCatalogNativeArguments(options);
+};
+
+type CommandOptionValues = Pick<
+  CatalogOptions,
+  "command" | "enable" | "language" | "plugin" | "search"
+> & { options: Options; positionals: string[] };
+
+const appendCommandOptions = (values: CommandOptionValues): Options => {
+  const { command, enable, language, options, plugin, positionals, search } = values;
+  if (command === "rule") {
+    const ruleOptions = Object.assign({}, options, {
+      rule: true,
+      ruleId: positionals[1]?.toUpperCase(),
+    });
+    if (language !== undefined) ruleOptions.language = language;
+    if (plugin !== undefined) ruleOptions.plugin = plugin;
+    if (enable) ruleOptions.enable = true;
+    return ruleOptions;
+  }
+  if (command !== "rules") return options;
+  const rulesOptions = Object.assign({}, options, { rules: true });
+  if (search !== undefined) rulesOptions.search = search;
+  return rulesOptions;
+};
+
+const CLI_PARSE_OPTIONS = {
+  config: { type: "string", short: "c" },
+  "dry-run": { type: "boolean" },
+  help: { type: "boolean", short: "h" },
+  enable: { type: "boolean" },
+  language: { type: "string" },
+  linter: { type: "string", multiple: true },
+  plugin: { type: "string" },
+  search: { type: "string" },
+  styleguide: { type: "boolean" },
+  version: { type: "boolean", short: "v" },
+  verbose: { type: "boolean" },
+} as const;
+
+const parseCliArguments = (args: string[]) => {
   const split = nativeArguments(args);
   const parsed = parseArgs({
     args: split.cliArgs,
-    options: {
-      config: { type: "string", short: "c" },
-      "dry-run": { type: "boolean" },
-      help: { type: "boolean", short: "h" },
-      linter: { type: "string", multiple: true },
-      styleguide: { type: "boolean" },
-      version: { type: "boolean", short: "v" },
-      verbose: { type: "boolean" },
-    },
+    options: CLI_PARSE_OPTIONS,
     strict: true,
     allowPositionals: true,
   });
-  return {
-    configPath: parsed.values.config as string | undefined,
-    dryRun: Boolean(parsed.values["dry-run"]),
-    help: Boolean(parsed.values.help),
-    linters: linterNames(parsed.values.linter),
-    nativeArgs: split.nativeArgs,
-    styleguide: Boolean(parsed.values.styleguide),
-    update: parseCommand(parsed.positionals),
-    version: Boolean(parsed.values.version),
-    verbose: Boolean(parsed.values.verbose),
-  };
+  return { parsed, split };
+};
+
+type ParsedCliArguments = ReturnType<typeof parseCliArguments>;
+
+const catalogOptionsFromArgs = ({ parsed, split }: ParsedCliArguments): CatalogOptions => ({
+  command: parseCommand(parsed.positionals),
+  enable: Boolean(parsed.values.enable),
+  language: parsed.values.language as string | undefined,
+  nativeArgs: split.nativeArgs,
+  plugin: parsed.values.plugin as string | undefined,
+  search: parsed.values.search as string | undefined,
+});
+
+const optionsFromArgs = ({ parsed, split }: ParsedCliArguments, command: CliCommand): Options => ({
+  configPath: parsed.values.config as string | undefined,
+  dryRun: Boolean(parsed.values["dry-run"]),
+  help: Boolean(parsed.values.help),
+  linters: linterNames(parsed.values.linter),
+  nativeArgs: split.nativeArgs,
+  styleguide: Boolean(parsed.values.styleguide),
+  update: command === "update",
+  version: Boolean(parsed.values.version),
+  verbose: Boolean(parsed.values.verbose),
+});
+
+export const parseOptions = (args: string[]): Options => {
+  const parsedArgs = parseCliArguments(args);
+  const catalogOptions = catalogOptionsFromArgs(parsedArgs);
+  validateCatalogOptions(catalogOptions);
+  const options = optionsFromArgs(parsedArgs, catalogOptions.command);
+  return appendCommandOptions(
+    Object.assign({}, catalogOptions, {
+      options,
+      positionals: parsedArgs.parsed.positionals,
+    }),
+  );
 };
 
 const readFiles = (directory: string, prefix = ""): string[] => {
@@ -260,19 +387,18 @@ const readFiles = (directory: string, prefix = ""): string[] => {
   });
 };
 
-export const detectLanguages = (root: string): DetectedLanguage[] => {
-  const files = readFiles(root);
-  const matchesByLanguage = Object.fromEntries(
-    LANGUAGE_DEFINITIONS.map(({ id }) => [id, [] as string[]]),
-  );
-  files.forEach((file) => {
-    const extension = extname(file).toLowerCase();
-    const hasLanguage = Object.hasOwn(LANGUAGE_BY_EXTENSION, extension);
-    if (!hasLanguage) return;
-    const languageId = LANGUAGE_BY_EXTENSION[extension as keyof typeof LANGUAGE_BY_EXTENSION];
-    if (languageId) matchesByLanguage[languageId] = matchesByLanguage[languageId].concat(file);
-  });
-  return LANGUAGE_DEFINITIONS.map((definition) => {
+const emptyLanguageMatches = (): Record<string, string[]> =>
+  Object.fromEntries(LANGUAGE_DEFINITIONS.map(({ id }) => [id, [] as string[]]));
+
+const recordLanguageFile = (file: string, matches: Record<string, string[]>): void => {
+  const extension = extname(file).toLowerCase();
+  if (!Object.hasOwn(LANGUAGE_BY_EXTENSION, extension)) return;
+  const languageId = LANGUAGE_BY_EXTENSION[extension as keyof typeof LANGUAGE_BY_EXTENSION];
+  if (languageId) matches[languageId] = matches[languageId].concat(file);
+};
+
+const detectedLanguages = (matchesByLanguage: Record<string, string[]>): DetectedLanguage[] =>
+  LANGUAGE_DEFINITIONS.map((definition) => {
     const matches = matchesByLanguage[definition.id];
     return {
       id: definition.id,
@@ -281,6 +407,11 @@ export const detectLanguages = (root: string): DetectedLanguage[] => {
       files: matches.slice(0, 3),
     };
   }).filter(({ count }) => count > 0);
+
+export const detectLanguages = (root: string): DetectedLanguage[] => {
+  const matchesByLanguage = emptyLanguageMatches();
+  readFiles(root).forEach((file) => recordLanguageFile(file, matchesByLanguage));
+  return detectedLanguages(matchesByLanguage);
 };
 
 const accessPath = (path: string): boolean => {
@@ -374,6 +505,16 @@ export const homebrewLinterUpdates = (value: unknown, ids: string[]): HomebrewLi
   });
 };
 
+const parseHomebrewOutput = (stdout: string, log: Logger): unknown | undefined => {
+  try {
+    return JSON.parse(stdout) as unknown;
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.debug(`Could not parse Homebrew output: ${message}`, "update");
+    return undefined;
+  }
+};
+
 const readHomebrewOutdated = (root: string, log: Logger): unknown | undefined => {
   const result = spawnSync("brew", ["outdated", "--json=v2", "--formula"], {
     cwd: root,
@@ -388,13 +529,7 @@ const readHomebrewOutdated = (root: string, log: Logger): unknown | undefined =>
     log.debug(`Homebrew outdated check exited with ${result.status ?? 1}`, "update");
     return undefined;
   }
-  try {
-    return JSON.parse(result.stdout) as unknown;
-  } catch (error: unknown) {
-    const message = error instanceof Error ? error.message : String(error);
-    log.debug(`Could not parse Homebrew output: ${message}`, "update");
-    return undefined;
-  }
+  return parseHomebrewOutput(result.stdout, log);
 };
 
 const selectedLinters = (
@@ -517,6 +652,24 @@ const upgradeHomebrew = async (
   return runCommand("brew", ["upgrade"].concat(formulas), root, log);
 };
 
+const finishHomebrewUpdate = async (
+  root: string,
+  updates: HomebrewLinterUpdate[],
+  config: UpdateConfig,
+  log: Logger,
+): Promise<number> => {
+  if (updates.length === 0) {
+    log.print("All selected Homebrew linters are up to date.");
+    return 0;
+  }
+  const selected = await chooseHomebrewUpdates(updates, config.prompt);
+  if (selected.length === 0) {
+    log.print("No linter updates selected.");
+    return 0;
+  }
+  return upgradeHomebrew(root, selected, config.prompt, log);
+};
+
 const updateHomebrewLinters = async (
   root: string,
   ids: string[],
@@ -531,16 +684,7 @@ const updateHomebrewLinters = async (
     return 2;
   }
   const updates = homebrewLinterUpdates(output, ids);
-  if (updates.length === 0) {
-    log.print("All selected Homebrew linters are up to date.");
-    return 0;
-  }
-  const selected = await chooseHomebrewUpdates(updates, config.prompt);
-  if (selected.length === 0) {
-    log.print("No linter updates selected.");
-    return 0;
-  }
-  return upgradeHomebrew(root, selected, config.prompt, log);
+  return finishHomebrewUpdate(root, updates, config, log);
 };
 
 const installHomebrewLinters = (root: string, ids: string[], log: Logger): Promise<number> => {
@@ -563,37 +707,50 @@ const readUpdateSource = (options: Options): Source | undefined => {
   return discoverConfig();
 };
 
-const runUpdate = (options: Options, log: Logger): Promise<number> | number => {
+const validateUpdateOptions = (options: Options): void => {
   if (options.dryRun) {
     throw new Error("--dry-run is not supported with update");
   }
   if (options.nativeArgs.length > 0) {
     throw new Error("native arguments after -- are not supported with update");
   }
-  const source = readUpdateSource(options);
-  let config: Config;
-  if (source === undefined) config = parseConfig({ linters: {} });
-  else config = source.config;
+};
+
+const configuredUpdate = (
+  source: Source | undefined,
+  config: Config,
+  options: Options,
+  log: Logger,
+): Promise<number> | number => {
   if (!config.updates.enabled) {
     log.print("Project linter updates are disabled.");
     return 0;
   }
-  if (config.updates.manager !== "brew") {
-    throw new Error(`unsupported update manager: ${config.updates.manager}`);
-  }
+  validateUpdateManager(config.updates.manager);
   const requiresInteractivePrompt = config.updates.prompt && !process.stdin.isTTY;
   if (requiresInteractivePrompt) {
     log.fail("Error: legibility update requires an interactive terminal");
     return 2;
   }
-  let root: string;
-  if (source === undefined) root = resolve(process.cwd());
-  else root = source.root;
-  if (!commandIsAvailable(config.updates.manager, root)) {
-    log.fail("Error: Homebrew is not available; install it before updating native linters");
-    return 2;
-  }
+  const root = source?.root ?? resolve(process.cwd());
+  if (!commandIsAvailable(config.updates.manager, root)) return updateUnavailable(log);
   return updateHomebrewLinters(root, updateIds(source, options), config.updates, log);
+};
+
+const validateUpdateManager = (manager: UpdateConfig["manager"]): void => {
+  if (manager !== "brew") throw new Error(`unsupported update manager: ${manager}`);
+};
+
+const updateUnavailable = (log: Logger): number => {
+  log.fail("Error: Homebrew is not available; install it before updating native linters");
+  return 2;
+};
+
+const runUpdate = (options: Options, log: Logger): Promise<number> | number => {
+  validateUpdateOptions(options);
+  const source = readUpdateSource(options);
+  const config = source?.config ?? parseConfig({ linters: {} });
+  return configuredUpdate(source, config, options, log);
 };
 
 const formatCommand = (command: string, args: string[]): string =>
@@ -602,33 +759,63 @@ const formatCommand = (command: string, args: string[]): string =>
     .map((part) => JSON.stringify(part))
     .join(" ");
 
+type ConfiguredLinterRun = {
+  definition: LinterDefinition;
+  linter: Linter;
+  source: Source;
+  options: Options;
+  log: Logger;
+};
+
+const logLinterCompletion = (
+  definition: LinterDefinition,
+  exitCode: number,
+  durationMs: number,
+  log: Logger,
+): void => {
+  log.debug(
+    `Finished ${definition.id}; exitCode=${exitCode}; durationMs=${durationMs}`,
+    "runLinters",
+  );
+};
+
+const runConfiguredLinter = async ({
+  definition,
+  linter,
+  source,
+  options,
+  log,
+}: ConfiguredLinterRun): Promise<number> => {
+  const args = linter.args.concat(options.nativeArgs);
+  if (options.dryRun) {
+    log.debug(`Previewing ${definition.id}`, "runLinters");
+    log.print(formatCommand(definition.command, args));
+    return 0;
+  }
+  const startedAt = Date.now();
+  log.debug(`Starting ${definition.id} (${definition.command})`, "runLinters");
+  const exitCode = await runCommand(definition.command, args, source.root, log);
+  logLinterCompletion(definition, exitCode, Date.now() - startedAt, log);
+  return exitCode;
+};
+
+const validateNativeArguments = (linters: readonly unknown[], nativeArgs: string[]): void => {
+  const hasMultipleLinters = linters.length > 1;
+  const hasNativeArgs = nativeArgs.length > 0;
+  const hasAmbiguousNativeArguments = hasMultipleLinters && hasNativeArgs;
+  if (hasAmbiguousNativeArguments) {
+    throw new Error("native arguments after -- require one selected linter");
+  }
+};
+
 export const runLinters = async (source: Source, options: Options): Promise<number> => {
   const linters = selectedLinters(source.config, options.linters);
   const log = createLogger({ file: "index.ts", isLogging: options.verbose });
   log.debug(`Running ${linters.length} linter(s); dryRun=${options.dryRun}`, "runLinters");
-  const hasMultipleLinters = linters.length > 1;
-  const hasNativeArgs = options.nativeArgs.length > 0;
-  const nativeArgsAreAmbiguous = hasMultipleLinters && hasNativeArgs;
-  if (nativeArgsAreAmbiguous) {
-    throw new Error("native arguments after -- require one selected linter");
-  }
+  validateNativeArguments(linters, options.nativeArgs);
   let firstFailure = 0;
   for (const [definition, linter] of linters) {
-    const command = definition.command;
-    const args = linter.args.concat(options.nativeArgs);
-    if (options.dryRun) {
-      log.debug(`Previewing ${definition.id}`, "runLinters");
-      log.print(formatCommand(command, args));
-      continue;
-    }
-    const startedAt = Date.now();
-    log.debug(`Starting ${definition.id} (${command})`, "runLinters");
-    const exitCode = await runCommand(command, args, source.root, log);
-    const durationMs = Date.now() - startedAt;
-    log.debug(
-      `Finished ${definition.id}; exitCode=${exitCode}; durationMs=${durationMs}`,
-      "runLinters",
-    );
+    const exitCode = await runConfiguredLinter({ definition, linter, source, options, log });
     const isFirstFailure = firstFailure === 0 && exitCode !== 0;
     if (isFirstFailure) firstFailure = exitCode;
   }
@@ -733,25 +920,28 @@ const previewFullSetup = async (log: Logger, source: Source, linters: string[]):
   await runLinters(source, styleguideOptions(linters));
 };
 
-const runFullSetupDemo = async (log: Logger): Promise<void> => {
-  printDemoTitle(log, "Full setup flow");
-  const shouldSetup = await promptConfirm("Demo · Set up Legibility for this project?", false);
-  if (!shouldSetup) {
-    printDemoResult(log, "setup", "not started");
-    return;
-  }
+const demoLanguages = async (log: Logger): Promise<string[]> => {
   printDemoTitle(log, "Detect languages");
   const languages = await promptForLanguages(STYLEGUIDE_DETECTED_LANGUAGES);
   printDemoResult(log, "languages", languages.join(", ") || "none");
-  await runInstallDemo(log);
+  return languages;
+};
+
+const demoLinters = async (log: Logger, languages: string[]): Promise<string[] | undefined> => {
   printDemoTitle(log, "Select available linters");
   const names = await promptForLinters(languages, "styleguide", styleguideCommandAvailable);
   const hasSelectedLinters = names !== undefined && names.length > 0;
-  if (!hasSelectedLinters) {
-    printDemoResult(log, "linters", "none selected");
-    return;
-  }
-  printDemoResult(log, "linters", names.join(", "));
+  if (hasSelectedLinters) printDemoResult(log, "linters", names.join(", "));
+  else printDemoResult(log, "linters", "none selected");
+  if (!hasSelectedLinters) return undefined;
+  return names;
+};
+
+const demoConfiguration = async (
+  log: Logger,
+  languages: string[],
+  names: string[],
+): Promise<Source> => {
   printDemoTitle(log, "Configure native arguments");
   const linters = await promptForLinterConfig(names);
   const source = setupSource("styleguide", languages, linters);
@@ -762,9 +952,25 @@ const runFullSetupDemo = async (log: Logger): Promise<void> => {
     true,
   );
   printDemoResult(log, "save", shouldSave ? "approved · not written" : "skipped");
-  await previewFullSetup(log, source, names);
+  return source;
+};
+
+const confirmDemoExecution = async (log: Logger): Promise<void> => {
   const shouldRun = await promptConfirm("Demo · Run these linters now? (never runs)", false);
   printDemoResult(log, "execution", shouldRun ? "approved · not executed" : "not approved");
+};
+
+const runFullSetupDemo = async (log: Logger): Promise<void> => {
+  printDemoTitle(log, "Full setup flow");
+  const shouldSetup = await promptConfirm("Demo · Set up Legibility for this project?", false);
+  if (!shouldSetup) return printDemoResult(log, "setup", "not started");
+  const languages = await demoLanguages(log);
+  await runInstallDemo(log);
+  const names = await demoLinters(log, languages);
+  if (names === undefined) return;
+  const source = await demoConfiguration(log, languages, names);
+  await previewFullSetup(log, source, names);
+  await confirmDemoExecution(log);
 };
 
 const runUpdateDemo = async (log: Logger): Promise<void> => {
@@ -806,6 +1012,20 @@ const runDemo = async (selection: string, log: Logger): Promise<void> => {
   if (selection === "cancellation") return await runCancellationDemo(log);
 };
 
+const isPromptCancelled = (error: unknown): boolean =>
+  error instanceof Error && error.name === "PromptCancelled";
+
+const styleguideStep = async (log: Logger): Promise<boolean> => {
+  const selected = await promptSelect("Choose a flow to exercise", STYLEGUIDE_TOUR_CHOICES);
+  if (selected === "exit") return false;
+  await runDemo(selected, log);
+  return promptConfirm("Return to the styleguide menu?", true);
+};
+
+const runStyleguideMenu = async (log: Logger): Promise<void> => {
+  while (await styleguideStep(log)) {}
+};
+
 export const runStyleguide = async (log: Logger): Promise<number> => {
   log.print(
     [
@@ -814,20 +1034,13 @@ export const runStyleguide = async (log: Logger): Promise<number> => {
       `${ANSI.GRAY}Use ↑/↓ and Enter to choose a demo. Esc exits.${ANSI.RESET}`,
     ].join("\n\n"),
   );
-  while (true) {
-    try {
-      const selected = await promptSelect("Choose a flow to exercise", STYLEGUIDE_TOUR_CHOICES);
-      if (selected === "exit") return 0;
-      await runDemo(selected, log);
-      const shouldReturnToMenu = await promptConfirm("Return to the styleguide menu?", true);
-      if (!shouldReturnToMenu) return 0;
-    } catch (error: unknown) {
-      const wasCancelled = error instanceof Error && error.name === "PromptCancelled";
-      if (!wasCancelled) throw error;
-      log.print("\nStyleguide closed.");
-      return 0;
-    }
+  try {
+    await runStyleguideMenu(log);
+  } catch (error: unknown) {
+    if (!isPromptCancelled(error)) throw error;
+    log.print("\nStyleguide closed.");
   }
+  return 0;
 };
 
 const readSourceAfterSave = (source: Source, log: Logger): Source => {
@@ -851,55 +1064,92 @@ const setupOptions = (source: Source, names: string[], verbose: boolean): Option
   };
 };
 
-const setupProject = async (log: Logger, verbose: boolean): Promise<number> => {
-  const root = resolve(process.cwd());
-  const detected = detectLanguages(root);
-  const languages = await promptForLanguages(detected);
-  log.debug(`Languages: ${languages.join(",") || "none"}`, "setupProject");
+type SetupProjectSelection = { exitCode: number } | { names: string[] };
+
+const selectSetupLinters = async (
+  root: string,
+  languages: string[],
+  log: Logger,
+): Promise<SetupProjectSelection> => {
   const installIds = await promptForLinterInstall(languages, root, commandIsAvailable);
   const installExit = await installHomebrewLinters(root, installIds, log);
-  if (installExit !== 0) return installExit;
+  if (installExit !== 0) return { exitCode: installExit };
   const names = await promptForLinters(languages, root, commandIsAvailable);
-  if (!names) {
-    log.fail("No supported Legibility linter is installed.");
-    log.debug("No linters available", "setupProject");
-    return 2;
-  }
-  log.debug(`Linters: ${names.join(",")}`, "setupProject");
-  const linters = await promptForLinterConfig(names);
-  const initialSource = setupSource(root, languages, linters);
-  const shouldSave = await promptConfirm("Save this configuration to legibility.json?", true);
-  log.debug(`Configuration saved=${shouldSave}`, "setupProject");
-  const source = shouldSave ? readSourceAfterSave(initialSource, log) : initialSource;
+  if (names !== undefined) return { names };
+  log.fail("No supported Legibility linter is installed.");
+  log.debug("No linters available", "setupProject");
+  return { exitCode: 2 };
+};
+
+const previewAndRunSetup = async (
+  source: Source,
+  names: string[],
+  verbose: boolean,
+  log: Logger,
+): Promise<number> => {
   const options = setupOptions(source, names, verbose);
   log.print("\nPreview — no linters will run:");
   const dryRunExit = await runLinters(source, options);
   if (dryRunExit !== 0) return dryRunExit;
   const shouldRun = await promptConfirm("Run these linters now?", false);
-  log.debug(`Execution approved=${shouldRun}`, "setupProject");
   if (!shouldRun) return 0;
   await checkForUpdates(source, Object.assign({}, options, { dryRun: false }), log);
   return runLinters(source, Object.assign({}, options, { dryRun: false }));
 };
 
+type SetupConfigurationRequest = {
+  root: string;
+  languages: string[];
+  names: string[];
+  verbose: boolean;
+  log: Logger;
+};
+
+const saveSetupConfiguration = async (request: SetupConfigurationRequest): Promise<number> => {
+  const { root, languages, names, verbose, log } = request;
+  const linters = await promptForLinterConfig(names);
+  const initialSource = setupSource(root, languages, linters);
+  const shouldSave = await promptConfirm("Save this configuration to legibility.json?", true);
+  log.debug(`Configuration saved=${shouldSave}`, "setupProject");
+  const source = shouldSave ? readSourceAfterSave(initialSource, log) : initialSource;
+  return previewAndRunSetup(source, names, verbose, log);
+};
+
+const reportMissingConfig = (log: Logger): number => {
+  log.fail("Error: no Legibility configuration found; use --config <path>");
+  return 2;
+};
+
+const setupProject = async (log: Logger, verbose: boolean): Promise<number> => {
+  const root = resolve(process.cwd());
+  const detected = detectLanguages(root);
+  const languages = await promptForLanguages(detected);
+  log.debug(`Languages: ${languages.join(",") || "none"}`, "setupProject");
+  const selection = await selectSetupLinters(root, languages, log);
+  if ("exitCode" in selection) return selection.exitCode;
+  const { names } = selection;
+  log.debug(`Linters: ${names.join(",")}`, "setupProject");
+  return saveSetupConfiguration({ root, languages, names, verbose, log });
+};
+
+const confirmProjectSetup = async (options: Options, log: Logger): Promise<number> => {
+  const isSetup = await promptConfirm(SETUP_QUESTION, false);
+  if (!isSetup) {
+    log.debug("Setup declined", "promptForSetup");
+    log.print(NO_SETUP_MESSAGE);
+    return 0;
+  }
+  log.debug("Setup accepted", "promptForSetup");
+  return setupProject(log, options.verbose);
+};
+
 const promptForSetup = async (options: Options): Promise<number> => {
   const log = createLogger({ file: "index.ts", isLogging: options.verbose });
-  if (!process.stdin.isTTY) {
-    log.fail("Error: no Legibility configuration found; use --config <path>");
-    return 2;
-  }
+  if (!process.stdin.isTTY) return reportMissingConfig(log);
   try {
-    const isSetup = await promptConfirm(SETUP_QUESTION, false);
-    if (!isSetup) {
-      log.debug("Setup declined", "promptForSetup");
-      log.print(NO_SETUP_MESSAGE);
-      return 0;
-    }
-    log.debug("Setup accepted", "promptForSetup");
-    return await setupProject(log, options.verbose);
+    return await confirmProjectSetup(options, log);
   } catch (error: unknown) {
-    const isPromptExit = error instanceof Error && error.name === "PromptCancelled";
-    if (!isPromptExit) throw error;
+    if (!isPromptCancelled(error)) throw error;
     log.debug("Setup cancelled", "promptForSetup");
     log.print("\nSetup cancelled.");
     return 130;
@@ -911,28 +1161,617 @@ const readRunSource = (options: Options): Source | undefined => {
   return discoverConfig();
 };
 
+type OxlintDocument = {
+  config: JsonObject;
+  content: string;
+  existed: boolean;
+  nestedConfigs: string[];
+  path: string;
+  supported: boolean;
+};
+
+type RuleProjectState = {
+  reason: string;
+  state: "disabled" | "enabled" | "unknown";
+};
+
+type RuleDetailsRequest = {
+  language: string | undefined;
+  log: Logger;
+  root: string;
+  rule: RuleRuntimeRecord;
+  source: Source | undefined;
+  variants: RuleVariant[];
+};
+
+type RuleVariantFormatRequest = {
+  language: string | undefined;
+  ruleId: string;
+  source: Source | undefined;
+  state: RuleProjectState;
+  variant: RuleVariant;
+};
+
+type EnableRuleRequest = {
+  log: Logger;
+  options: Options;
+  root: string;
+  source: Source | undefined;
+  variant: RuleVariant;
+};
+
+const oxlintConfigsIn = (directory: string): string[] =>
+  OXLINT_CONFIG_FILENAMES.map((filename) => join(directory, filename)).filter(existsSync);
+
+const isOxlintConfigFilename = (path: string): boolean =>
+  OXLINT_CONFIG_FILENAMES.some((filename) => filename === basename(path));
+
+const findOxlintConfig = (directory: string): string | undefined => {
+  const configs = oxlintConfigsIn(directory);
+  if (configs.length > 1) {
+    throw new Error(`multiple Oxlint configurations found: ${configs.join(", ")}`);
+  }
+  if (configs.length === 1) return configs[0];
+  const parent = dirname(directory);
+  if (parent === directory) return undefined;
+  return findOxlintConfig(parent);
+};
+
+const parseOxlintConfig = (path: string, content: string): JsonObject => {
+  const errors: ParseError[] = [];
+  const config = parseJsonc(content, errors, { allowTrailingComma: true }) as unknown;
+  if (errors.length > 0) {
+    const error = errors[0];
+    if (error === undefined) throw new Error(`invalid Oxlint configuration: ${path}`);
+    throw new Error(`${printParseErrorCode(error.error)} at offset ${error.offset} in ${path}`);
+  }
+  if (!isObject(config)) throw new Error(`Oxlint configuration must be an object: ${path}`);
+  return config;
+};
+
+const readOxlintDocument = (root: string): OxlintDocument => {
+  const existingPath = findOxlintConfig(root);
+  const path = existingPath ?? join(root, OXLINT_CONFIG_FILENAMES[0]);
+  const configFiles = readFiles(root).filter(isOxlintConfigFilename);
+  const resolvedConfigs = configFiles.map((file) => resolve(root, file));
+  const nestedConfigs = resolvedConfigs.filter((configPath) => configPath !== path);
+  const isScriptConfig = [".ts", ".mts"].includes(extname(path));
+  const isSupported = !isScriptConfig;
+  if (!isSupported) {
+    return { config: {}, content: "", existed: true, nestedConfigs, path, supported: false };
+  }
+  const existed = existsSync(path);
+  const content = existed ? readFileSync(path, "utf8") : "{}\n";
+  const config = parseOxlintConfig(path, content);
+  return { config, content, existed, nestedConfigs, path, supported: true };
+};
+
+const DISABLED_RULE_SEVERITIES = new Set<unknown>(["off", 0]);
+const ENABLED_RULE_SEVERITIES = new Set<unknown>(["warn", "error", 1, 2]);
+
+const stateFromRuleSetting = (value: unknown): RuleProjectState["state"] => {
+  const severity = Array.isArray(value) ? value[0] : value;
+  const isDisabled = severity === undefined || DISABLED_RULE_SEVERITIES.has(severity);
+  if (isDisabled) return "disabled";
+  if (ENABLED_RULE_SEVERITIES.has(severity)) return "enabled";
+  return "unknown";
+};
+
+const configScopeIsUncertain = (config: JsonObject): boolean => {
+  const overrides = config.overrides;
+  const hasInvalidOverrides = overrides !== undefined && !Array.isArray(overrides);
+  const hasOverrides = Array.isArray(overrides) && overrides.length > 0;
+  const hasUncertainScope = hasInvalidOverrides || hasOverrides || config.extends !== undefined;
+  return hasUncertainScope;
+};
+
+const configuredRuleState = (
+  config: JsonObject,
+  nativeRule: string,
+): RuleProjectState | undefined => {
+  const rules = config.rules;
+  const rulesAreInvalid = rules !== undefined && !isObject(rules);
+  if (rulesAreInvalid)
+    return { state: "unknown", reason: "the config rules field is not an object" };
+  const configuredRules = isObject(rules) ? rules : {};
+  const configured = configuredRules[nativeRule];
+  if (configured === undefined) return undefined;
+  return { state: stateFromRuleSetting(configured), reason: "native rule setting" };
+};
+
+const documentedRuleState = (
+  document: OxlintDocument,
+  defaultState: RuleVariant["defaultState"],
+): RuleProjectState => {
+  if (document.config.categories !== undefined) {
+    return { state: "unknown", reason: "categories may enable the rule" };
+  }
+  if (defaultState === "unknown") return { state: "unknown", reason: "no documented default" };
+  const reason = document.existed ? "documented default" : "no Oxlint config; documented default";
+  return { state: defaultState, reason };
+};
+
+const stateFromOxlintConfig = (
+  document: OxlintDocument,
+  nativeRule: string,
+  defaultState: RuleVariant["defaultState"],
+): RuleProjectState => {
+  const isUnsupported = !document.supported;
+  if (isUnsupported) return { state: "unknown", reason: "TypeScript configs are read-only" };
+  const hasNestedConfigs = document.nestedConfigs.length > 0;
+  if (hasNestedConfigs) {
+    return { state: "unknown", reason: "nested Oxlint configs may change effective settings" };
+  }
+  const hasUncertainScope = configScopeIsUncertain(document.config);
+  if (hasUncertainScope) {
+    return { state: "unknown", reason: "the config uses extends or file overrides" };
+  }
+  const explicitState = configuredRuleState(document.config, nativeRule);
+  if (explicitState !== undefined) return explicitState;
+  return documentedRuleState(document, defaultState);
+};
+
+const oxlintArguments = (source: Source | undefined): string[] => {
+  const definition = LINTER_DEFINITIONS.find(({ command }) => command === "oxlint");
+  if (definition === undefined) return [];
+  return source?.config.linters[definition.id]?.args ?? [];
+};
+
+const CLI_RULE_STATES = new Map<string, RuleProjectState["state"]>([
+  ["--deny", "enabled"],
+  ["--warn", "enabled"],
+  ["--allow", "disabled"],
+] as const);
+
+const cliRuleOverride = (
+  argument: string,
+  nextArgument: string | undefined,
+  nativeRule: string,
+): RuleProjectState | undefined => {
+  const [flag, inlineRule] = argument.split("=", 2);
+  const state = CLI_RULE_STATES.get(flag ?? "");
+  if (state === undefined) return undefined;
+  const target = inlineRule ?? nextArgument;
+  if (target === undefined) return { state: "unknown", reason: `${flag} has no rule value` };
+  const isTargetedRule = [nativeRule, `eslint/${nativeRule}`].includes(target);
+  if (!isTargetedRule) return { state: "unknown", reason: "custom Oxlint rule arguments" };
+  return { state, reason: "Legibility native arguments" };
+};
+
+const cliRuleState = (args: string[], nativeRule: string): RuleProjectState | undefined => {
+  const overrides = args
+    .map((argument, index) => cliRuleOverride(argument, args[index + 1], nativeRule))
+    .filter((override): override is RuleProjectState => override !== undefined);
+  if (overrides.length === 0) return undefined;
+  const states = new Set(overrides.map(({ state }) => state));
+  if (states.size > 1) return { state: "unknown", reason: "conflicting Oxlint rule arguments" };
+  const result = overrides[0];
+  if (result === undefined) return undefined;
+  return { state: result.state, reason: result.reason };
+};
+
+const isSeparateConfigArgument = (argument: string): boolean =>
+  argument === "--config" || argument === "-c";
+
+const isOxlintConfigArgument = (argument: string): boolean =>
+  argument.startsWith("--config=") || isSeparateConfigArgument(argument);
+
+const hasOxlintConfigArgument = (args: string[]): boolean => args.some(isOxlintConfigArgument);
+
+const ruleProjectState = (
+  document: OxlintDocument,
+  source: Source | undefined,
+  variant: RuleVariant,
+): RuleProjectState => {
+  const args = oxlintArguments(source);
+  if (hasOxlintConfigArgument(args)) {
+    return { state: "unknown", reason: "the Legibility config selects another Oxlint config" };
+  }
+  const cliState = cliRuleState(args, variant.nativeRule);
+  if (cliState !== undefined) return cliState;
+  return stateFromOxlintConfig(document, variant.nativeRule, variant.defaultState);
+};
+
+const normalizeRuleLanguage = (value: string): string => {
+  const normalized = value.toLowerCase();
+  const definition = LANGUAGE_DEFINITIONS.find(
+    ({ id, label }) => id.toLowerCase() === normalized || label.toLowerCase() === normalized,
+  );
+  return definition?.id ?? normalized;
+};
+
+const RULES_DOCUMENTATION_URL =
+  "https://github.com/yowainwright/legibility/blob/main/docs/rules.md";
+
+const ruleVariantRoute = (anchor: string): string => `${RULES_DOCUMENTATION_URL}#${anchor}`;
+
+const normalizePlugin = (value: string): string =>
+  value.toLowerCase().replace(/-(plugin-)?legibility$/u, "");
+
+const pluginMatches = (selector: string, plugin: string): boolean => {
+  const normalized = normalizePlugin(selector);
+  if (normalized === plugin.toLowerCase()) return true;
+  const definition = LINTER_DEFINITIONS.find(
+    ({ command, id }) => command === normalized || id === selector.toLowerCase(),
+  );
+  return definition?.languages.includes(plugin.toLowerCase()) ?? false;
+};
+
+const selectRuleVariants = (options: Options, rule: RuleRuntimeRecord): RuleVariant[] =>
+  rule.variants.filter((variant) => {
+    const matchesLanguage = variantSupportsLanguage(variant, options.language);
+    const matchesPlugin =
+      options.plugin === undefined || pluginMatches(options.plugin, variant.plugin);
+    return matchesLanguage && matchesPlugin;
+  });
+
+const variantSupportsLanguage = (variant: RuleVariant, language: string | undefined): boolean => {
+  if (language === undefined) return true;
+  const languageLabels = new Set(variant.languages.map(normalizeRuleLanguage));
+  return languageLabels.has(normalizeRuleLanguage(language));
+};
+
+const formatRecommendedRule = (variant: RuleVariant): string | undefined => {
+  if (variant.recommended === undefined) return undefined;
+  if (!Array.isArray(variant.recommended)) return JSON.stringify(variant.recommended);
+  const [severity, options] = variant.recommended;
+  return `${String(severity)} ${JSON.stringify(options)}`;
+};
+
+const selectedVariantLanguages = (
+  variant: RuleVariant,
+  selectedLanguage: string | undefined,
+): string[] => {
+  if (selectedLanguage === undefined) return variant.languages;
+  const selected = normalizeRuleLanguage(selectedLanguage);
+  return variant.languages.filter((language) => normalizeRuleLanguage(language) === selected);
+};
+
+const formatVariantCoverage = (variant: RuleVariant, languages: string[]): string => {
+  const entries = variant.coverage.filter(({ language }) => languages.includes(language));
+  return entries.map(({ language, status }) => `${language}: ${status}`).join("; ");
+};
+
+const optionalRuleLine = (label: string, value: string | undefined): string[] => {
+  if (value === undefined) return [];
+  return [`  ${label}: ${value}`];
+};
+
+const ruleVariantSummaryLines = (
+  variant: RuleVariant,
+  languages: string[],
+  coverage: string,
+): string[] => [
+  `${languages.join(", ")} · ${variant.plugin} · native rule: ${variant.nativeRule}`,
+  `  Coverage: ${coverage}`,
+  `  Default: ${variant.defaultState}`,
+  `  Settings: ${variant.settings}`,
+];
+
+const ruleVariantStatusLines = (request: RuleVariantFormatRequest): string[] => {
+  const { source, state, variant } = request;
+  const recommended = optionalRuleLine("Recommended", formatRecommendedRule(variant));
+  const project = optionalRuleLine("Project", `${state.state} (${state.reason})`);
+  const isOxlint = variant.plugin.toLowerCase() === "oxlint";
+  const runner = optionalRuleLine(
+    "Legibility runner",
+    isOxlint ? legibilityOxlintStatus(source) : undefined,
+  );
+  const docs = ruleVariantRoute(variant.anchor);
+  return recommended.concat(project, runner, [`  Docs: ${docs}`]);
+};
+
+const formatRuleVariant = (request: RuleVariantFormatRequest): string => {
+  const { language: selectedLanguage, variant } = request;
+  const languages = selectedVariantLanguages(variant, selectedLanguage);
+  const coverage = formatVariantCoverage(variant, languages);
+  const summary = ruleVariantSummaryLines(variant, languages, coverage);
+  const status = ruleVariantStatusLines(request);
+  return summary.concat(status).join("\n");
+};
+
+const legibilityOxlintStatus = (source: Source | undefined): string => {
+  const definition = LINTER_DEFINITIONS.find(({ command }) => command === "oxlint");
+  if (definition === undefined) return "unsupported";
+  const linter = source?.config.linters[definition.id];
+  if (linter === undefined) return "not configured";
+  return linter.enabled ? "enabled" : "disabled";
+};
+
+const projectStateForVariant = (
+  document: OxlintDocument | undefined,
+  source: Source | undefined,
+  variant: RuleVariant,
+  configError: string | undefined,
+): RuleProjectState => {
+  const isOxlint = variant.plugin.toLowerCase() === "oxlint";
+  if (!isOxlint) return { state: "unknown", reason: "project inspection is currently Oxlint-only" };
+  if (configError !== undefined) return { state: "unknown", reason: configError };
+  if (document === undefined)
+    return { state: "unknown", reason: "Oxlint config could not be loaded" };
+  return ruleProjectState(document, source, variant);
+};
+
+const availableRuleVariants = (rule: RuleRuntimeRecord): string =>
+  rule.variants.map(({ languages, plugin }) => `${languages.join("/")} · ${plugin}`).join("; ");
+
+const selectRule = (options: Options, log: Logger) => {
+  const rule = RULE_CATALOG.rules.find(({ id }) => id === options.ruleId);
+  if (rule === undefined) {
+    log.fail(
+      `Error: unknown rule ${options.ruleId}; search with legibility rules --search <terms>`,
+    );
+    return undefined;
+  }
+  const variants = selectRuleVariants(options, rule);
+  if (variants.length === 0) {
+    log.fail(`Error: no matching ${rule.id} mapping; available: ${availableRuleVariants(rule)}`);
+    return undefined;
+  }
+  return { rule, variants };
+};
+
+const selectedRuleVariant = (variants: RuleVariant[]): RuleVariant => {
+  if (variants.length !== 1) {
+    throw new Error("select exactly one language and plugin variant to enable");
+  }
+  const variant = variants[0];
+  if (variant === undefined) throw new Error("no rule variant selected");
+  return variant;
+};
+
+const runRule = (options: Options, log: Logger): number => {
+  const selection = selectRule(options, log);
+  if (selection === undefined) return 2;
+  const { rule, variants } = selection;
+  const source = readRunSource(options);
+  const root = source?.root ?? resolve(process.cwd());
+  if (options.enable) {
+    const variant = selectedRuleVariant(variants);
+    return enableOxlintRule({ log, options, root, source, variant });
+  }
+  return printRuleDetails({
+    language: options.language,
+    log,
+    root,
+    rule,
+    source,
+    variants,
+  });
+};
+
+const printRuleDetails = (request: RuleDetailsRequest): number => {
+  const { language, log, root, rule, source, variants } = request;
+  const hasOxlintVariant = variants.some(({ plugin }) => plugin.toLowerCase() === "oxlint");
+  let document: OxlintDocument | undefined;
+  let configError: string | undefined;
+  if (hasOxlintVariant) {
+    try {
+      document = readOxlintDocument(root);
+    } catch (error: unknown) {
+      configError = error instanceof Error ? error.message : String(error);
+    }
+  }
+  const header = [`${rule.id} — ${rule.name}`, rule.description, `Topics: ${rule.tags.join(", ")}`];
+  const sections = variants.map((variant) => {
+    const state = projectStateForVariant(document, source, variant, configError);
+    return formatRuleVariant({ language, ruleId: rule.id, source, state, variant });
+  });
+  log.print(header.concat(sections).join("\n\n"));
+  return 0;
+};
+
+const ruleConfiguration = (config: JsonObject): JsonObject | undefined => {
+  const rules = config.rules;
+  if (rules === undefined) return {};
+  if (!isObject(rules)) throw new Error("Oxlint rules must be an object");
+  return rules;
+};
+
+const ruleSettingWithSavedOptions = (recommended: unknown, existing: unknown): unknown => {
+  const recommendedValues = Array.isArray(recommended) ? recommended : [recommended];
+  const savedOptions = Array.isArray(existing) ? existing.slice(1) : [];
+  const hasSavedOptions = savedOptions.length > 0;
+  const hasRecommendedOptions = Array.isArray(recommended);
+  const shouldBuildTuple = hasSavedOptions || hasRecommendedOptions;
+  if (!shouldBuildTuple) return recommended;
+  const options = hasSavedOptions ? savedOptions : recommendedValues.slice(1);
+  const setting = [recommendedValues[0]].concat(options);
+  return setting;
+};
+
+const enabledRuleSetting = (document: OxlintDocument, variant: RuleVariant): unknown => {
+  const rules = ruleConfiguration(document.config);
+  if (rules === undefined) throw new Error("could not read Oxlint rules");
+  const existing = rules[variant.nativeRule];
+  return ruleSettingWithSavedOptions(variant.recommended, existing);
+};
+
+const ruleArgumentState = (args: string[], nativeRule: string): RuleProjectState | undefined => {
+  if (hasOxlintConfigArgument(args)) {
+    return { state: "unknown", reason: "the Legibility config selects another Oxlint config" };
+  }
+  return cliRuleState(args, nativeRule);
+};
+
+const displayConfigPath = (root: string, path: string): string =>
+  relative(root, path) || basename(path);
+
+const updateOxlintSource = (content: string, variant: RuleVariant, setting: unknown): string => {
+  const eol = content.includes("\r\n") ? "\r\n" : "\n";
+  const edits = modify(content, ["rules", variant.nativeRule], setting, {
+    formattingOptions: { eol, insertSpaces: true, tabSize: 2 },
+  });
+  return applyEdits(content, edits);
+};
+
+const assertSupportedOxlintVariant = (variant: RuleVariant): void => {
+  const isSupported =
+    variant.plugin.toLowerCase() === "oxlint" && variant.recommended !== undefined;
+  if (!isSupported) {
+    throw new Error("automatic enablement is supported for documented Oxlint mappings only");
+  }
+};
+
+const ruleAlreadyEnabledByArguments = (
+  source: Source | undefined,
+  variant: RuleVariant,
+  log: Logger,
+): boolean => {
+  const argumentsState = ruleArgumentState(oxlintArguments(source), variant.nativeRule);
+  if (argumentsState?.state === "enabled") {
+    log.print(`${variant.nativeRule} is already enabled by the Legibility Oxlint arguments.`);
+    return true;
+  }
+  if (argumentsState !== undefined) {
+    throw new Error(`cannot safely edit Oxlint config: ${argumentsState.reason}`);
+  }
+  return false;
+};
+
+const validateEditableOxlintDocument = (root: string, document: OxlintDocument): void => {
+  if (!document.supported) throw new Error(`automatic enablement cannot edit ${document.path}`);
+  const configOutsideProject = relative(root, document.path).startsWith("..");
+  if (configOutsideProject)
+    throw new Error(`Oxlint config is above the project root: ${document.path}`);
+  if (document.nestedConfigs.length > 0) {
+    throw new Error("automatic enablement does not edit projects with nested Oxlint configs");
+  }
+  if (configScopeIsUncertain(document.config)) {
+    throw new Error(
+      "automatic enablement does not edit Oxlint configs with extends or file overrides",
+    );
+  }
+};
+
+const enableOxlintRule = (request: EnableRuleRequest): number => {
+  const { log, root, source, variant } = request;
+  assertSupportedOxlintVariant(variant);
+  if (ruleAlreadyEnabledByArguments(source, variant, log)) return 0;
+  const document = readOxlintDocument(root);
+  validateEditableOxlintDocument(root, document);
+  return writeOxlintRule(request, document);
+};
+
+const assertCategoriesDoNotEnableRule = (document: OxlintDocument, existing: unknown): void => {
+  const categoriesMayEnableRule =
+    existing === undefined && document.config.categories !== undefined;
+  if (categoriesMayEnableRule) {
+    throw new Error(
+      "Oxlint categories may already enable this rule; inspect the effective config first",
+    );
+  }
+};
+
+const ruleAlreadyEnabled = (
+  document: OxlintDocument,
+  variant: RuleVariant,
+  log: Logger,
+): boolean => {
+  const rules = ruleConfiguration(document.config);
+  if (rules === undefined) throw new Error("could not read Oxlint rules");
+  const existing = rules[variant.nativeRule];
+  assertCategoriesDoNotEnableRule(document, existing);
+  const currentState =
+    existing === undefined ? variant.defaultState : stateFromRuleSetting(existing);
+  if (currentState === "enabled") {
+    log.print(`${variant.nativeRule} is already enabled; its existing settings were preserved.`);
+    return true;
+  }
+  if (currentState === "unknown") {
+    throw new Error(`${variant.nativeRule} has no documented default; refusing to guess its state`);
+  }
+  return false;
+};
+
+const writeOxlintRule = (request: EnableRuleRequest, document: OxlintDocument): number => {
+  const { log, options, root, source, variant } = request;
+  if (ruleAlreadyEnabled(document, variant, log)) return 0;
+  const setting = enabledRuleSetting(document, variant);
+  const updated = updateOxlintSource(document.content, variant, setting);
+  const configPath = displayConfigPath(root, document.path);
+  if (options.dryRun) {
+    log.print(`Would set ${configPath} rules.${variant.nativeRule} = ${JSON.stringify(setting)}`);
+    return 0;
+  }
+  writeFileSync(document.path, updated, "utf8");
+  log.print(`Enabled ${options.ruleId} in ${configPath}.`);
+  if (legibilityOxlintStatus(source) === "enabled") {
+    log.print("Run the configured checks with `legibility`.");
+    return 0;
+  }
+  log.print("Run `oxlint .` from the project root after installing Oxlint.");
+  return 0;
+};
+
+const queryMatchesSearchTerms = (searchText: string, terms: string[]): boolean => {
+  const unmatched = terms.filter((term) => !searchText.includes(term));
+  return unmatched.length === 0;
+};
+
+const searchRules = (query: string): RuleRuntimeCatalog["rules"] => {
+  const terms = query.toLowerCase().split(/\s+/u).filter(Boolean);
+  return RULE_CATALOG.rules.filter((rule) => queryMatchesSearchTerms(rule.searchTerms, terms));
+};
+
+const formatRule = (rule: RuleRuntimeRecord): string => {
+  const detailsUrl = ruleVariantRoute(rule.id.toLowerCase());
+  return [
+    `${rule.id} — ${rule.name}`,
+    `  ${rule.description}`,
+    `  Topics: ${rule.tags.join(", ")}`,
+    `  Languages: ${rule.languages.join(", ")}`,
+    `  Details: ${detailsUrl}`,
+  ].join("\n");
+};
+
+const runRules = (options: Options, log: Logger): number => {
+  if (!options.search?.trim()) {
+    log.print(`Search ${RULE_CATALOG.rules.length} shared rules with --search <terms>.`);
+    return 0;
+  }
+  const matches = searchRules(options.search);
+  if (matches.length === 0) {
+    log.print(`No rules match "${options.search}".`);
+    return 0;
+  }
+  const heading = `${matches.length} of ${RULE_CATALOG.rules.length} rules match "${options.search}":`;
+  const resultLines = [heading].concat(matches.map(formatRule));
+  log.print(resultLines.join("\n\n"));
+  return 0;
+};
+
 export { formatStyleguide, promptForSetup };
 
-export const run = async (args: string[]): Promise<number> => {
-  const baseLog = createLogger({ file: "index.ts" });
-  let options: Options;
+const parseRunOptions = (args: string[], log: Logger): Options | undefined => {
   try {
-    options = parseOptions(args);
+    return parseOptions(args);
   } catch (error: unknown) {
-    baseLog.fail(`Error: ${error instanceof Error ? error.message : String(error)}`);
-    return 2;
+    log.fail(`Error: ${error instanceof Error ? error.message : String(error)}`);
+    return undefined;
   }
-  const log = createLogger({ file: "index.ts", isLogging: options.verbose });
+};
+
+const runImmediateCommand = (
+  options: Options,
+  log: Logger,
+): number | Promise<number> | undefined => {
   if (options.help) {
     log.print(HELP_TEXT);
     return 0;
   }
-  if (options.styleguide) return await runStyleguide(log);
+  if (options.styleguide) return runStyleguide(log);
   if (options.version) {
     log.print(`legibility version ${VERSION}`);
     return 0;
   }
+  if (options.rules) return runRules(options, log);
+  return undefined;
+};
+
+const runConfiguredCommand = async (options: Options, log: Logger): Promise<number> => {
   try {
+    if (options.rule) return runRule(options, log);
     if (options.update) return await runUpdate(options, log);
     const source = readRunSource(options);
     if (!source) return promptForSetup(options);
@@ -942,6 +1781,16 @@ export const run = async (args: string[]): Promise<number> => {
     log.fail(`Error: ${error instanceof Error ? error.message : String(error)}`);
     return 2;
   }
+};
+
+export const run = async (args: string[]): Promise<number> => {
+  const baseLog = createLogger({ file: "index.ts" });
+  const options = parseRunOptions(args, baseLog);
+  if (options === undefined) return 2;
+  const log = createLogger({ file: "index.ts", isLogging: options.verbose });
+  const immediateResult = await runImmediateCommand(options, log);
+  if (immediateResult !== undefined) return immediateResult;
+  return runConfiguredCommand(options, log);
 };
 
 export const runWithPrompt = async (

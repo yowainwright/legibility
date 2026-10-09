@@ -36,8 +36,8 @@ const homebrewPayload = {
   ],
 };
 
-test("parses CLI options separately from native linter arguments", () => {
-  const parsed = parseOptions([
+const parseLinterOptions = () =>
+  parseOptions([
     "--linter",
     "fs-lint",
     "--linter",
@@ -48,7 +48,48 @@ test("parses CLI options separately from native linter arguments", () => {
     "json",
   ]);
 
-  assert.deepEqual(parsed, {
+const parseRuleOptions = () => ({
+  search: parseOptions(["rules", "--search", "function length"]),
+  detail: parseOptions([
+    "rule",
+    "LEG038",
+    "--language",
+    "javascript",
+    "--plugin",
+    "oxlint",
+    "--enable",
+    "--dry-run",
+  ]),
+});
+
+const expectedHomebrewOutdated = [
+  {
+    name: "fs-lint",
+    installedVersions: ["0.2.1"],
+    currentVersion: "0.2.2",
+    pinned: false,
+  },
+  {
+    name: "src-lint",
+    installedVersions: ["0.1.0"],
+    currentVersion: "0.1.1",
+    pinned: true,
+  },
+];
+
+const expectedHomebrewLinterUpdates = [
+  {
+    name: "fs-lint",
+    installedVersions: ["0.2.1"],
+    currentVersion: "0.2.2",
+    pinned: false,
+    id: "fs-lint",
+    formula: "fs-lint",
+  },
+];
+
+test("parses CLI options separately from native linter arguments", () => {
+  assert.deepEqual(parseLinterOptions(), {
     configPath: undefined,
     dryRun: true,
     help: false,
@@ -59,6 +100,18 @@ test("parses CLI options separately from native linter arguments", () => {
     version: false,
     verbose: false,
   });
+});
+
+test("parses rule search and language/plugin selection", () => {
+  const { search, detail } = parseRuleOptions();
+  assert.equal(search.rules, true);
+  assert.equal(search.search, "function length");
+  assert.equal(detail.rule, true);
+  assert.equal(detail.ruleId, "LEG038");
+  assert.equal(detail.language, "javascript");
+  assert.equal(detail.plugin, "oxlint");
+  assert.equal(detail.enable, true);
+  assert.equal(detail.dryRun, true);
 });
 
 test("parses the Homebrew update command", () => {
@@ -79,30 +132,11 @@ test("includes the full setup flow in the styleguide", () => {
 });
 
 test("parses Homebrew outdated formula data for supported linters", () => {
-  assert.deepEqual(parseHomebrewOutdated(homebrewPayload), [
-    {
-      name: "fs-lint",
-      installedVersions: ["0.2.1"],
-      currentVersion: "0.2.2",
-      pinned: false,
-    },
-    {
-      name: "src-lint",
-      installedVersions: ["0.1.0"],
-      currentVersion: "0.1.1",
-      pinned: true,
-    },
-  ]);
-  assert.deepEqual(homebrewLinterUpdates(homebrewPayload, ["fs-lint", "src-lint"]), [
-    {
-      name: "fs-lint",
-      installedVersions: ["0.2.1"],
-      currentVersion: "0.2.2",
-      pinned: false,
-      id: "fs-lint",
-      formula: "fs-lint",
-    },
-  ]);
+  assert.deepEqual(parseHomebrewOutdated(homebrewPayload), expectedHomebrewOutdated);
+  assert.deepEqual(
+    homebrewLinterUpdates(homebrewPayload, ["fs-lint", "src-lint"]),
+    expectedHomebrewLinterUpdates,
+  );
 });
 
 test("publishes every supported linter ID in the schema", () => {

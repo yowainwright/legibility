@@ -5,6 +5,12 @@ import type { PromptChoice } from "./prompts/types.ts";
 export const VERSION = packageJson.version;
 
 export const CONFIG_FILENAMES = [".legibilityrc", "legibility.json"] as const;
+export const OXLINT_CONFIG_FILENAMES = [
+  ".oxlintrc.json",
+  ".oxlintrc.jsonc",
+  "oxlint.config.ts",
+  "oxlint.config.mts",
+] as const;
 
 export const ANSI = {
   BOLD: "\x1b[1m",
@@ -272,12 +278,18 @@ Run the enabled linters from the discovered Legibility configuration.
 
 Commands:
   update               Check and update outdated Homebrew linters
+  rules [--search <terms>]  Search rule IDs, descriptions, examples, tags, languages, and coverage
+  rule <id>             Inspect a rule and its language/plugin mappings
 
 Options:
   -c, --config <path>  Use a JSON config or package.json
-      --dry-run        Print commands without running them
+      --dry-run        Preview commands or config changes without applying them
+      --enable         Enable the selected supported rule in native config
   -h, --help           Show this help
       --linter <name>  Run one configured linter; repeat for several
+      --language <name> Select a rule language variant
+      --plugin <name>   Select a rule plugin variant
+      --search <terms> Search the shared rule catalog (all terms must match)
       --styleguide     Show visual examples of the guided setup
   -v, --version        Show the version
       --verbose        Show local diagnostic logs on stderr
