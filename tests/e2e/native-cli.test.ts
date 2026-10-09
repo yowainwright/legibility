@@ -11,7 +11,7 @@ import {
 } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
 import test from "node:test";
-import { nativeReleaseOutputFile } from "../../scripts/build/constants.ts";
+import { nativeReleaseOutputFile } from "../../scripts/build/utils.ts";
 
 const nativeTestEnabled = process.env.LEGIBILITY_NATIVE_E2E === "1";
 const nativeBinary = resolve(nativeReleaseOutputFile());
