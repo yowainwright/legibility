@@ -1380,8 +1380,10 @@ const normalizeRuleLanguage = (value: string): string => {
   return definition?.id ?? normalized;
 };
 
-const ruleVariantRoute = (ruleId: string, language: string, plugin: string): string =>
-  `/docs/rules/${ruleId}/${normalizeRuleLanguage(language)}/${plugin.toLowerCase()}/`;
+const RULES_DOCUMENTATION_URL =
+  "https://github.com/yowainwright/legibility/blob/main/docs/rules.md";
+
+const ruleVariantRoute = (anchor: string): string => `${RULES_DOCUMENTATION_URL}#${anchor}`;
 
 const normalizePlugin = (value: string): string =>
   value.toLowerCase().replace(/-(plugin-)?legibility$/u, "");
@@ -1446,11 +1448,8 @@ const ruleVariantSummaryLines = (
   `  Settings: ${variant.settings}`,
 ];
 
-const ruleVariantStatusLines = (
-  request: RuleVariantFormatRequest,
-  languages: string[],
-): string[] => {
-  const { ruleId, source, state, variant } = request;
+const ruleVariantStatusLines = (request: RuleVariantFormatRequest): string[] => {
+  const { source, state, variant } = request;
   const recommended = optionalRuleLine("Recommended", formatRecommendedRule(variant));
   const project = optionalRuleLine("Project", `${state.state} (${state.reason})`);
   const isOxlint = variant.plugin.toLowerCase() === "oxlint";
@@ -1458,8 +1457,8 @@ const ruleVariantStatusLines = (
     "Legibility runner",
     isOxlint ? legibilityOxlintStatus(source) : undefined,
   );
-  const docs = languages.map((language) => ruleVariantRoute(ruleId, language, variant.plugin));
-  return recommended.concat(project, runner, [`  Docs: ${docs.join(", ")}`]);
+  const docs = ruleVariantRoute(variant.anchor);
+  return recommended.concat(project, runner, [`  Docs: ${docs}`]);
 };
 
 const formatRuleVariant = (request: RuleVariantFormatRequest): string => {
@@ -1467,7 +1466,7 @@ const formatRuleVariant = (request: RuleVariantFormatRequest): string => {
   const languages = selectedVariantLanguages(variant, selectedLanguage);
   const coverage = formatVariantCoverage(variant, languages);
   const summary = ruleVariantSummaryLines(variant, languages, coverage);
-  const status = ruleVariantStatusLines(request, languages);
+  const status = ruleVariantStatusLines(request);
   return summary.concat(status).join("\n");
 };
 
@@ -1569,6 +1568,25 @@ const ruleConfiguration = (config: JsonObject): JsonObject | undefined => {
   return rules;
 };
 
+const ruleSettingWithSavedOptions = (recommended: unknown, existing: unknown): unknown => {
+  const recommendedValues = Array.isArray(recommended) ? recommended : [recommended];
+  const savedOptions = Array.isArray(existing) ? existing.slice(1) : [];
+  const hasSavedOptions = savedOptions.length > 0;
+  const hasRecommendedOptions = Array.isArray(recommended);
+  const shouldBuildTuple = hasSavedOptions || hasRecommendedOptions;
+  if (!shouldBuildTuple) return recommended;
+  const options = hasSavedOptions ? savedOptions : recommendedValues.slice(1);
+  const setting = [recommendedValues[0]].concat(options);
+  return setting;
+};
+
+const enabledRuleSetting = (document: OxlintDocument, variant: RuleVariant): unknown => {
+  const rules = ruleConfiguration(document.config);
+  if (rules === undefined) throw new Error("could not read Oxlint rules");
+  const existing = rules[variant.nativeRule];
+  return ruleSettingWithSavedOptions(variant.recommended, existing);
+};
+
 const ruleArgumentState = (args: string[], nativeRule: string): RuleProjectState | undefined => {
   if (hasOxlintConfigArgument(args)) {
     return { state: "unknown", reason: "the Legibility config selects another Oxlint config" };
@@ -1579,9 +1597,9 @@ const ruleArgumentState = (args: string[], nativeRule: string): RuleProjectState
 const displayConfigPath = (root: string, path: string): string =>
   relative(root, path) || basename(path);
 
-const updateOxlintSource = (content: string, variant: RuleVariant): string => {
+const updateOxlintSource = (content: string, variant: RuleVariant, setting: unknown): string => {
   const eol = content.includes("\r\n") ? "\r\n" : "\n";
-  const edits = modify(content, ["rules", variant.nativeRule], variant.recommended, {
+  const edits = modify(content, ["rules", variant.nativeRule], setting, {
     formattingOptions: { eol, insertSpaces: true, tabSize: 2 },
   });
   return applyEdits(content, edits);
@@ -1669,12 +1687,11 @@ const ruleAlreadyEnabled = (
 const writeOxlintRule = (request: EnableRuleRequest, document: OxlintDocument): number => {
   const { log, options, root, source, variant } = request;
   if (ruleAlreadyEnabled(document, variant, log)) return 0;
-  const updated = updateOxlintSource(document.content, variant);
+  const setting = enabledRuleSetting(document, variant);
+  const updated = updateOxlintSource(document.content, variant, setting);
   const configPath = displayConfigPath(root, document.path);
   if (options.dryRun) {
-    log.print(
-      `Would set ${configPath} rules.${variant.nativeRule} = ${JSON.stringify(variant.recommended)}`,
-    );
+    log.print(`Would set ${configPath} rules.${variant.nativeRule} = ${JSON.stringify(setting)}`);
     return 0;
   }
   writeFileSync(document.path, updated, "utf8");
@@ -1698,7 +1715,7 @@ const searchRules = (query: string): RuleRuntimeCatalog["rules"] => {
 };
 
 const formatRule = (rule: RuleRuntimeRecord): string => {
-  const detailsUrl = `/docs/rules/${rule.id}/`;
+  const detailsUrl = ruleVariantRoute(rule.id.toLowerCase());
   return [
     `${rule.id} — ${rule.name}`,
     `  ${rule.description}`,

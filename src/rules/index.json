@@ -86,7 +86,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "max-expression-operators",
+          "nativeRule": "legibility/max-expression-operators",
           "plugin": "ESLint",
           "settings": "- {max: number}: allowed weighted operators. Default: 4. - {operators: string[]}: operators to count. - {complexity: Record<string, number>}: per-operator weights.; Rule interface; Rule schemas"
         },
@@ -106,7 +106,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "max-expression-operators",
+          "nativeRule": "legibility/max-expression-operators",
           "plugin": "Oxlint",
           "settings": "- {max: number}: allowed weighted operators. Default: 4. - {operators: string[]}: operators to count. - {complexity: Record<string, number>}: per-operator weights.; Rule interface; Rule schemas"
         },
@@ -211,7 +211,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "hoist-if-operators",
+          "nativeRule": "legibility/hoist-if-operators",
           "plugin": "ESLint",
           "settings": "- {max: number}: allowed weighted operators in the condition. Default: 0. - {operators: string[]}: operators to count. Default: [\"&&\", \"||\", \"??\", \"?:\"]. - {complexity: Record<string, number>}: per-operator weights.; Rule interface; Rule schemas"
         },
@@ -231,7 +231,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "hoist-if-operators",
+          "nativeRule": "legibility/hoist-if-operators",
           "plugin": "Oxlint",
           "settings": "- {max: number}: allowed weighted operators in the condition. Default: 0. - {operators: string[]}: operators to count. Default: [\"&&\", \"||\", \"??\", \"?:\"]. - {complexity: Record<string, number>}: per-operator weights.; Rule interface; Rule schemas"
         },
@@ -336,7 +336,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "max-control-flow-depth",
+          "nativeRule": "legibility/max-control-flow-depth",
           "plugin": "ESLint",
           "settings": "- {max: number}: allowed nested control-flow depth. Default: 3.; Rule interface; Rule schemas"
         },
@@ -356,7 +356,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "max-control-flow-depth",
+          "nativeRule": "legibility/max-control-flow-depth",
           "plugin": "Oxlint",
           "settings": "- {max: number}: allowed nested control-flow depth. Default: 3.; Rule interface; Rule schemas"
         },
@@ -461,7 +461,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-quadratic-patterns",
+          "nativeRule": "legibility/no-quadratic-patterns",
           "plugin": "ESLint",
           "settings": "- {iterationMethods: string[]}: methods checked for nested iteration. - {searchMethods: string[]}: methods treated as collection searches.; Rule interface; Rule schemas"
         },
@@ -481,7 +481,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-quadratic-patterns",
+          "nativeRule": "legibility/no-quadratic-patterns",
           "plugin": "Oxlint",
           "settings": "- {iterationMethods: string[]}: methods checked for nested iteration. - {searchMethods: string[]}: methods treated as collection searches.; Rule interface; Rule schemas"
         },
@@ -586,7 +586,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-redundant-boolean-logic",
+          "nativeRule": "legibility/no-redundant-boolean-logic",
           "plugin": "ESLint",
           "settings": "- {equalityOperators: string[]}: operators checked for comparisons against true or false. Default: [\"==\", \"===\", \"!=\", \"!==\"].; Rule interface; Rule schemas"
         },
@@ -606,7 +606,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-redundant-boolean-logic",
+          "nativeRule": "legibility/no-redundant-boolean-logic",
           "plugin": "Oxlint",
           "settings": "- {equalityOperators: string[]}: operators checked for comparisons against true or false. Default: [\"==\", \"===\", \"!=\", \"!==\"].; Rule interface; Rule schemas"
         },
@@ -696,7 +696,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "prefer-positive-condition-names",
+          "nativeRule": "legibility/prefer-positive-condition-names",
           "plugin": "ESLint",
           "settings": "- {booleanOperators: string[]}: binary operators that mark an initializer as boolean-like.; Rule interface; Rule schemas"
         },
@@ -716,7 +716,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "prefer-positive-condition-names",
+          "nativeRule": "legibility/prefer-positive-condition-names",
           "plugin": "Oxlint",
           "settings": "- {booleanOperators: string[]}: binary operators that mark an initializer as boolean-like.; Rule interface; Rule schemas"
         },
@@ -806,7 +806,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-trivial-wrapper-functions",
+          "nativeRule": "legibility/no-trivial-wrapper-functions",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -826,7 +826,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-trivial-wrapper-functions",
+          "nativeRule": "legibility/no-trivial-wrapper-functions",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -916,7 +916,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "prefer-early-return",
+          "nativeRule": "legibility/prefer-early-return",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -936,7 +936,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "prefer-early-return",
+          "nativeRule": "legibility/prefer-early-return",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -1041,7 +1041,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "prefer-guard-clauses",
+          "nativeRule": "legibility/prefer-guard-clauses",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -1061,7 +1061,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "prefer-guard-clauses",
+          "nativeRule": "legibility/prefer-guard-clauses",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -1151,7 +1151,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "max-array-chain-depth",
+          "nativeRule": "legibility/max-array-chain-depth",
           "plugin": "ESLint",
           "settings": "- {max: number}: allowed chained items. Default: 2. - {iterationMethods: string[]}: method names that count as chain items.; Rule interface; Rule schemas"
         },
@@ -1171,7 +1171,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "max-array-chain-depth",
+          "nativeRule": "legibility/max-array-chain-depth",
           "plugin": "Oxlint",
           "settings": "- {max: number}: allowed chained items. Default: 2. - {iterationMethods: string[]}: method names that count as chain items.; Rule interface; Rule schemas"
         },
@@ -1261,7 +1261,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-computed-values",
+          "nativeRule": "legibility/no-computed-values",
           "plugin": "ESLint",
           "settings": "- {max: number}: allowed weighted operators in a computed value. Default: 1. - {operators: string[]}: operators to count. - {complexity: Record<string, number>}: per-operator weights. - {objectValues: \"computed\" | \"named\"}: object value mode. Default: \"computed\". - {returnValues: \"computed\" | \"named\"}: return value mode. Default: \"computed\". Use \"named\" mode to require a named identifier or literal before object construction and returns.; Rule interface; Rule schemas"
         },
@@ -1281,7 +1281,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-computed-values",
+          "nativeRule": "legibility/no-computed-values",
           "plugin": "Oxlint",
           "settings": "- {max: number}: allowed weighted operators in a computed value. Default: 1. - {operators: string[]}: operators to count. - {complexity: Record<string, number>}: per-operator weights. - {objectValues: \"computed\" | \"named\"}: object value mode. Default: \"computed\". - {returnValues: \"computed\" | \"named\"}: return value mode. Default: \"computed\". Use \"named\" mode to require a named identifier, literal, or this before object construction and returns. Destructuring bindings and their defaults are excluded; computed values inside an object created by a default are still checked.; Rule interface; Rule schemas"
         },
@@ -1371,7 +1371,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "prefer-object-lookup",
+          "nativeRule": "legibility/prefer-object-lookup",
           "plugin": "ESLint",
           "settings": "- {min: number}: equality checks required before reporting. Default: 3. - {operators: string[]}: equality operators that count. Default: [\"==\", \"===\"].; Rule interface; Rule schemas"
         },
@@ -1391,7 +1391,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "prefer-object-lookup",
+          "nativeRule": "legibility/prefer-object-lookup",
           "plugin": "Oxlint",
           "settings": "- {min: number}: equality checks required before reporting. Default: 3. - {operators: string[]}: equality operators that count. Default: [\"==\", \"===\"].; Rule interface; Rule schemas"
         },
@@ -1466,7 +1466,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "require-filename-matches-dirname",
+          "nativeRule": "legibility/require-filename-matches-dirname",
           "plugin": "ESLint",
           "settings": "- {schema: \"dirname\" | \"index\" | \"custom\"}: required filename schema. - {minDepth: number}: minimum parent depth to check. Default: 3. - {allowedQualifiers: string[]}: dirname schema suffixes. - {allowedFilenames: string[]}: dirname schema standalone basenames. - {patterns: string[]}: required exact basenames for a custom schema. Use {dirname} as the parent-directory placeholder. The rule ignores the final JavaScript or TypeScript extension, so the same schema covers .js, .jsx, .ts, and .tsx files.; Rule interface; Rule schemas"
         },
@@ -1486,7 +1486,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "require-filename-matches-dirname",
+          "nativeRule": "legibility/require-filename-matches-dirname",
           "plugin": "Oxlint",
           "settings": "- {schema: \"dirname\" | \"index\" | \"custom\"}: required filename schema. - {minDepth: number}: minimum parent depth to check. Default: 3. - {allowedQualifiers: string[]}: dirname schema suffixes. - {allowedFilenames: string[]}: dirname schema standalone basenames. - {patterns: string[]}: required exact basenames for a custom schema. Use {dirname} as the parent-directory placeholder. The rule ignores the final JavaScript or TypeScript extension, so the same schema covers .js, .jsx, .ts, and .tsx files.; Rule interface; Rule schemas"
         },
@@ -1576,7 +1576,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-mixed-filename-casing",
+          "nativeRule": "legibility/no-mixed-filename-casing",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -1596,7 +1596,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-mixed-filename-casing",
+          "nativeRule": "legibility/no-mixed-filename-casing",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -2134,7 +2134,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-unmatched-comments",
+          "nativeRule": "legibility/no-unmatched-comments",
           "plugin": "ESLint",
           "settings": "- matchers: case-insensitive regular expressions matched against the comment body. - prefixIdentifiers: case-insensitive identifiers allowed at the start of a comment. - suffixIdentifiers: case-insensitive identifiers allowed at the end of a comment. All options accept string arrays and default to empty arrays. The three options are independent allow paths. Matching ignores comment delimiters, surrounding whitespace, and leading JSDoc stars. Invalid regular expressions and empty identifiers never match. The rule has no autofix.; Rule interface; Rule schemas"
         },
@@ -2154,7 +2154,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-unmatched-comments",
+          "nativeRule": "legibility/no-unmatched-comments",
           "plugin": "Oxlint",
           "settings": "- matchers: case-insensitive regular expressions matched against the comment body. - prefixIdentifiers: case-insensitive identifiers allowed at the start of a comment. - suffixIdentifiers: case-insensitive identifiers allowed at the end of a comment. All options accept string arrays and default to empty arrays. The three options are independent allow paths. Matching ignores comment delimiters, surrounding whitespace, and leading JSDoc stars. Invalid or potentially unsafe regular expressions and empty identifiers never match. Matcher lists accept at most 16 expressions, each at most 256 characters long; regex matching is limited to the first 1024 characters of a comment. The rule has no autofix.; Rule interface; Rule schemas"
         },
@@ -2279,7 +2279,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-automated-comment-attribution",
+          "nativeRule": "legibility/no-automated-comment-attribution",
           "plugin": "ESLint",
           "settings": "- {identifiers: string[]}: case-insensitive names treated as automated sources. Default: ai, chatgpt, claude, codex, copilot, gemini, gpt, llm, and openai.; Rule interface; Rule schemas"
         },
@@ -2299,7 +2299,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-automated-comment-attribution",
+          "nativeRule": "legibility/no-automated-comment-attribution",
           "plugin": "Oxlint",
           "settings": "- {identifiers: string[]}: case-insensitive names treated as automated sources. Default: ai, chatgpt, claude, codex, copilot, gemini, gpt, llm, and openai.; Rule interface; Rule schemas"
         },
@@ -2714,7 +2714,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "max-function-parameters",
+          "nativeRule": "legibility/max-function-parameters",
           "plugin": "ESLint",
           "settings": "- {max: number}: allowed top-level parameters. Default: 4. - {maxObjectProperties: number}: allowed properties in one destructured object parameter. Default: 8.; Rule interface; Rule schemas"
         },
@@ -2734,7 +2734,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "max-function-parameters",
+          "nativeRule": "legibility/max-function-parameters",
           "plugin": "Oxlint",
           "settings": "- {max: number}: allowed top-level parameters. Default: 4. - {maxObjectProperties: number}: allowed properties in one destructured object parameter. Default: 8.; Rule interface; Rule schemas"
         },
@@ -2859,7 +2859,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-complex-ternaries",
+          "nativeRule": "legibility/no-complex-ternaries",
           "plugin": "ESLint",
           "settings": "- {max: number}: allowed weighted operators inside one ternary. Default: 2. - {operators: string[]}: operators to count. - {complexity: Record<string, number>}: per-operator weights.; Rule interface; Rule schemas"
         },
@@ -2879,7 +2879,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-complex-ternaries",
+          "nativeRule": "legibility/no-complex-ternaries",
           "plugin": "Oxlint",
           "settings": "- {max: number}: allowed weighted operators inside one ternary. Default: 2. - {operators: string[]}: operators to count. - {complexity: Record<string, number>}: per-operator weights.; Rule interface; Rule schemas"
         },
@@ -2954,7 +2954,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-hidden-side-effects",
+          "nativeRule": "legibility/no-hidden-side-effects",
           "plugin": "ESLint",
           "settings": "- {mutatingMethods: string[]}: method calls treated as mutations. - {sideEffectFreeIterationMethods: string[]}: callback methods expected to stay side-effect-free.; Rule interface; Rule schemas"
         },
@@ -2974,7 +2974,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-hidden-side-effects",
+          "nativeRule": "legibility/no-hidden-side-effects",
           "plugin": "Oxlint",
           "settings": "- {mutatingMethods: string[]}: method calls treated as mutations. - {sideEffectFreeIterationMethods: string[]}: callback methods expected to stay side-effect-free.; Rule interface; Rule schemas"
         },
@@ -3034,7 +3034,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-identity-array-callback",
+          "nativeRule": "legibility/no-identity-array-callback",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3054,7 +3054,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-identity-array-callback",
+          "nativeRule": "legibility/no-identity-array-callback",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3114,7 +3114,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-repeated-collection-search",
+          "nativeRule": "legibility/no-repeated-collection-search",
           "plugin": "ESLint",
           "settings": "- {searchMethods: string[]}: methods treated as collection searches.; Rule interface; Rule schemas"
         },
@@ -3134,7 +3134,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-repeated-collection-search",
+          "nativeRule": "legibility/no-repeated-collection-search",
           "plugin": "Oxlint",
           "settings": "- {searchMethods: string[]}: methods treated as collection searches.; Rule interface; Rule schemas"
         },
@@ -3209,7 +3209,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-single-use-renaming-alias",
+          "nativeRule": "legibility/no-single-use-renaming-alias",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3229,7 +3229,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-single-use-renaming-alias",
+          "nativeRule": "legibility/no-single-use-renaming-alias",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3289,7 +3289,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-small-collection-conversion",
+          "nativeRule": "legibility/no-small-collection-conversion",
           "plugin": "ESLint",
           "settings": "- {min: number}: minimum known input size before a lookup collection is useful. Default: 3.; Rule interface; Rule schemas"
         },
@@ -3309,7 +3309,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-small-collection-conversion",
+          "nativeRule": "legibility/no-small-collection-conversion",
           "plugin": "Oxlint",
           "settings": "- {min: number}: minimum known input size before a lookup collection is useful. Default: 3.; Rule interface; Rule schemas"
         }
@@ -3354,7 +3354,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-standalone-array-mutations",
+          "nativeRule": "legibility/no-standalone-array-mutations",
           "plugin": "ESLint",
           "settings": "- {arrayMutatingMethods: string[]}: array methods reported when used as standalone mutations. - {mutatingMethods: string[]}: mutation methods used to identify fresh mutation targets.; Rule interface; Rule schemas"
         },
@@ -3374,7 +3374,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-standalone-array-mutations",
+          "nativeRule": "legibility/no-standalone-array-mutations",
           "plugin": "Oxlint",
           "settings": "- {arrayMutatingMethods: string[]}: array methods reported when used as standalone mutations. - {mutatingMethods: string[]}: mutation methods used to identify fresh mutation targets.; Rule interface; Rule schemas"
         },
@@ -3449,7 +3449,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-stacked-comments",
+          "nativeRule": "legibility/no-stacked-comments",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3469,7 +3469,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-stacked-comments",
+          "nativeRule": "legibility/no-stacked-comments",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3564,7 +3564,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "prefer-flat-map",
+          "nativeRule": "legibility/prefer-flat-map",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3584,7 +3584,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "prefer-flat-map",
+          "nativeRule": "legibility/prefer-flat-map",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         }
@@ -3614,7 +3614,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-direct-node-bin-smoke",
+          "nativeRule": "legibility/no-direct-node-bin-smoke",
           "plugin": "ESLint",
           "settings": "- {entryPatterns: string[]}: entry files that should be tested through the installed bin shim.; Rule interface; Rule schemas"
         },
@@ -3634,7 +3634,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-direct-node-bin-smoke",
+          "nativeRule": "legibility/no-direct-node-bin-smoke",
           "plugin": "Oxlint",
           "settings": "- {entryPatterns: string[]}: entry files that should be tested through the installed bin shim.; Rule interface; Rule schemas"
         },
@@ -3694,7 +3694,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-redundant-nullish-fallback",
+          "nativeRule": "legibility/no-redundant-nullish-fallback",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3714,7 +3714,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-redundant-nullish-fallback",
+          "nativeRule": "legibility/no-redundant-nullish-fallback",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         }
@@ -3744,7 +3744,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "require-jsdoc-multiline-comments",
+          "nativeRule": "legibility/require-jsdoc-multiline-comments",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3764,7 +3764,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "require-jsdoc-multiline-comments",
+          "nativeRule": "legibility/require-jsdoc-multiline-comments",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         }
@@ -3794,7 +3794,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-unnecessary-async",
+          "nativeRule": "legibility/no-unnecessary-async",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3814,7 +3814,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-unnecessary-async",
+          "nativeRule": "legibility/no-unnecessary-async",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         }
@@ -3844,7 +3844,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-unnecessary-block-callback",
+          "nativeRule": "legibility/no-unnecessary-block-callback",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3864,7 +3864,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "no-unnecessary-block-callback",
+          "nativeRule": "legibility/no-unnecessary-block-callback",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         }
@@ -3894,7 +3894,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "prefer-concat-object-assign",
+          "nativeRule": "legibility/prefer-concat-object-assign",
           "plugin": "ESLint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3914,7 +3914,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "prefer-concat-object-assign",
+          "nativeRule": "legibility/prefer-concat-object-assign",
           "plugin": "Oxlint",
           "settings": "No rule-specific options documented.; Rule interface; Rule schemas"
         },
@@ -3959,7 +3959,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "require-executable-shebang",
+          "nativeRule": "legibility/require-executable-shebang",
           "plugin": "ESLint",
           "settings": "- {files: string[]}: source files expected to be executable entries. - {runtimes: string[]}: accepted shebang runtimes. Default: [\"bun\", \"deno\", \"node\"].; Rule interface; Rule schemas"
         },
@@ -3979,7 +3979,7 @@
           ],
           "defaultState": "unknown",
           "languages": ["JavaScript", "TypeScript"],
-          "nativeRule": "require-executable-shebang",
+          "nativeRule": "legibility/require-executable-shebang",
           "plugin": "Oxlint",
           "settings": "- {files: string[]}: source files expected to be executable entries. - {runtimes: string[]}: accepted shebang runtimes. Default: [\"bun\", \"deno\", \"node\"].; Rule interface; Rule schemas"
         },

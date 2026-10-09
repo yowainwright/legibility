@@ -122,8 +122,19 @@ const runConfiguredCli = (root: string, args: string[], environment: Record<stri
     env: Object.assign({}, process.env, environment),
   });
 
-const assertRuleCatalogAccess = (root: string): void => {
+const assertRuleSearchOutput = (root: string): void => {
   const search = runCli(root, ["rules", "--search", "function length"]);
+  const searchOutput = `${search.stdout}\n${search.stderr}`;
+  assert.equal(search.status, 0, searchOutput);
+  assert.match(searchOutput, /2 of 62 rules match/);
+  assert.ok(
+    searchOutput.includes(
+      "Details: https://github.com/yowainwright/legibility/blob/main/docs/rules.md#leg038",
+    ),
+  );
+};
+
+const assertRuleDetailsOutput = (root: string): void => {
   const details = runCli(root, [
     "rule",
     "LEG038",
@@ -132,14 +143,19 @@ const assertRuleCatalogAccess = (root: string): void => {
     "--plugin",
     "oxlint",
   ]);
-  const searchOutput = `${search.stdout}\n${search.stderr}`;
   const detailOutput = `${details.stdout}\n${details.stderr}`;
-  assert.equal(search.status, 0, searchOutput);
-  assert.match(searchOutput, /2 of 62 rules match/);
-  assert.match(searchOutput, /Details: \/docs\/rules\/LEG038\//);
   assert.equal(details.status, 0, detailOutput);
   assert.match(detailOutput, /Project: disabled/);
-  assert.match(detailOutput, /Docs: \/docs\/rules\/LEG038\/javascript\/oxlint\//);
+  assert.ok(
+    detailOutput.includes(
+      "Docs: https://github.com/yowainwright/legibility/blob/main/docs/rules.md#leg038-javascript-typescript-oxlint",
+    ),
+  );
+};
+
+const assertRuleCatalogAccess = (root: string): void => {
+  assertRuleSearchOutput(root);
+  assertRuleDetailsOutput(root);
   assert.equal(existsSync(join(root, "legibility.json")), false);
 };
 
@@ -310,6 +326,27 @@ test("searches and inspects rules without starting project setup", (t) => {
   assertRuleCatalogAccess(fixture.root);
 });
 
+test("inspects namespaced Legibility Oxlint rules", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  writeFileSync(
+    join(fixture.root, ".oxlintrc.json"),
+    JSON.stringify({ rules: { "legibility/require-filename-matches-dirname": "warn" } }),
+  );
+
+  const result = runCli(fixture.root, [
+    "rule",
+    "LEG025",
+    "--language",
+    "javascript",
+    "--plugin",
+    "oxlint",
+  ]);
+  assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
+  assert.match(result.stdout, /native rule: legibility\/require-filename-matches-dirname/);
+  assert.match(result.stdout, /Project: enabled \(native rule setting\)/);
+});
+
 test("enables LEG038 in JSONC and its settings change Oxlint's line budget", (t) => {
   const fixture = createFixture();
   t.after(fixture.cleanup);
@@ -323,6 +360,23 @@ test("enables LEG038 in JSONC and its settings change Oxlint's line budget", (t)
   const updated = assertRuleEnableSettings(configPath);
   assertRuleLineBudget(fixture.root);
   assertRuleEnableIsIdempotent(fixture.root, configPath, updated);
+});
+
+test("preserves saved Oxlint rule options when enabling a disabled rule", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const configPath = join(fixture.root, ".oxlintrc.json");
+  writeFileSync(
+    configPath,
+    JSON.stringify({ rules: { "max-lines-per-function": ["off", { max: 80 }] } }),
+  );
+
+  const enabled = runCli(fixture.root, enableRuleArgs);
+  assert.equal(enabled.status, 0, `${enabled.stdout}\n${enabled.stderr}`);
+  const configuration = parseJsonc(readFileSync(configPath, "utf8")) as {
+    rules: Record<string, unknown>;
+  };
+  assert.deepEqual(configuration.rules["max-lines-per-function"], ["warn", { max: 80 }]);
 });
 
 test("refuses to enable a rule through file overrides", (t) => {

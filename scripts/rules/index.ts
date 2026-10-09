@@ -387,7 +387,11 @@ const nativeRuleMapping = (mapping: MarkdownNode): Pick<RuleVariant, "nativeRule
   const linkedRule = linkLabels(mapping)[0];
   const inlineRule = inlineCodeValues(mapping).at(-1);
   const mappedRule = linkedRule ?? inlineRule ?? "";
-  const nativeRule = mappedRule.split("/").at(-1)?.trim() ?? "";
+  const normalizedRule = mappedRule.trim();
+  const isLegibilityRule = normalizedRule.startsWith("legibility/");
+  const nativeRule = isLegibilityRule
+    ? normalizedRule
+    : (normalizedRule.split("/").at(-1)?.trim() ?? "");
   return { nativeRule, plugin };
 };
 
