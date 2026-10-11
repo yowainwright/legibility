@@ -206,10 +206,10 @@ test("filters linter choices by language and availability", async (t) => {
   const selected = await promptForLinters(
     ["go"],
     "fixture",
-    (command) => command === "golangci-lint",
+    (command) => command === "go-lint-legibility",
   );
 
-  assert.deepEqual(selected, ["golangci-lint-legibility"]);
+  assert.deepEqual(selected, ["go-lint-legibility"]);
 });
 
 test("detects languages in stable order and ignores generated directories", (t) => {

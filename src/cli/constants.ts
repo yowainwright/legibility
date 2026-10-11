@@ -117,8 +117,8 @@ export const LINTER_DEFINITIONS: LinterDefinition[] = [
     languages: ["javascript", "typescript"] as const,
   },
   {
-    id: "golangci-lint-legibility",
-    command: "golangci-lint",
+    id: "go-lint-legibility",
+    command: "go-lint-legibility",
     kind: "hosted",
     description: "Go readability policy",
     languages: ["go"] as const,

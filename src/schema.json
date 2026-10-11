@@ -43,7 +43,7 @@
           "struct-lint",
           "eslint-plugin-legibility",
           "oxlint-plugin-legibility",
-          "golangci-lint-legibility",
+          "go-lint-legibility",
           "ruff-legibility",
           "shellcheck-legibility",
           "sqlfluff-plugin-legibility"

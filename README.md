@@ -99,6 +99,31 @@ legibility --dry-run
 "oxlint" "--deny-warnings"
 ```
 
+<!-- generated:available-tools:start -->
+
+## Available linters and plugins
+
+### Linters
+
+| Name                          | Command       | Languages                                 | What it checks                 |
+| ----------------------------- | ------------- | ----------------------------------------- | ------------------------------ |
+| [`fs-lint`](#fs-lint)         | `fs-lint`     | All detected languages                    | file and path policy           |
+| [`src-lint`](#src-lint)       | `src-lint`    | JavaScript, TypeScript, Python, Go, Proto | import boundary policy         |
+| [`struct-lint`](#struct-lint) | `struct-lint` | All detected languages                    | declaration and function order |
+
+### Plugins
+
+| Name                                                        | Command                 | Languages              | What it checks                               |
+| ----------------------------------------------------------- | ----------------------- | ---------------------- | -------------------------------------------- |
+| [`eslint-plugin-legibility`](#eslint-plugin-legibility)     | `eslint`                | JavaScript, TypeScript | JavaScript and TypeScript readability policy |
+| [`oxlint-plugin-legibility`](#oxlint-plugin-legibility)     | `oxlint`                | JavaScript, TypeScript | JavaScript and TypeScript readability policy |
+| [`go-lint-legibility`](#go-lint-legibility)                 | `go-lint-legibility`    | Go                     | Go readability policy                        |
+| [`ruff-legibility`](#ruff-legibility)                       | `ruff`                  | Python                 | Python readability policy                    |
+| [`shellcheck-legibility`](#shellcheck-legibility)           | `shellcheck-legibility` | Shell                  | Shell readability policy                     |
+| [`sqlfluff-plugin-legibility`](#sqlfluff-plugin-legibility) | `sqlfluff`              | SQL                    | SQL and Jinja comment policy                 |
+
+<!-- generated:available-tools:end -->
+
 ---
 
 ## CLI API
@@ -507,11 +532,20 @@ Provides readability rules for [Oxlint](https://github.com/yowainwright/oxlint-p
 
 ---
 
-### `golangci-lint-legibility`
+### `go-lint-legibility`
 
-> Command: **`golangci-lint`** – Languages: **Go**
+> Command: **`go-lint-legibility`** – Languages: **Go**
 
-Provides readability analyzers for [golangci-lint](https://github.com/yowainwright/golangci-lint-legibility).
+Provides Go readability rules through the [Go module](https://github.com/yowainwright/go-lint-legibility).
+
+Install and run the standalone command:
+
+```sh
+go install github.com/yowainwright/go-lint-legibility/cmd/go-lint-legibility@latest
+go-lint-legibility ./...
+```
+
+The module also supports an optional `golangci-lint` plugin build; see its [setup instructions](https://github.com/yowainwright/go-lint-legibility#golangci-lint-plugin).
 
 ---
 
