@@ -67,6 +67,7 @@ import type {
   HomebrewLinterUpdate,
   HomebrewOutdatedFormula,
   JsonObject,
+  Languages,
   Linter,
   LinterDefinition,
   Options,
@@ -121,9 +122,10 @@ const parseLinter = (name: string, value: unknown): Linter => {
   return Object.assign({}, value, { enabled, args });
 };
 
-const parseLanguages = (value: unknown): Record<string, JsonObject> => {
-  if (value === undefined) return {};
-  if (!isObject(value)) throw new Error("languages must be an object");
+const parseLanguages = (value: unknown): Languages | undefined => {
+  if (value === undefined) return undefined;
+  if (isStringArray(value)) return value;
+  if (!isObject(value)) throw new Error("languages must be an array of strings or an object");
   const entries = Object.keys(value).map((name) => {
     const language = value[name];
     if (!isObject(language)) throw new Error(`languages.${name} must be an object`);

@@ -68,9 +68,7 @@ For example, entering `--deny-warnings` as the Oxlint arguments produces:
 
 ```json
 {
-  "languages": {
-    "typescript": {}
-  },
+  "languages": ["typescript"],
   "linters": {
     "oxlint-plugin-legibility": {
       "enabled": true,
@@ -220,7 +218,23 @@ Shows rule details and a language/plugin mapping. Add `--language` or `--plugin`
 
 ```sh
 legibility rule LEG038 --language javascript --plugin oxlint
-legibility rule LEG038 --language javascript --plugin oxlint --enable --dry-run
+```
+
+Example output with no project Legibility config or Oxlint config:
+
+```text
+LEG038 — max-function-lines
+Limit functions to a focused line budget.
+Topics: functions, complexity
+
+JavaScript · Oxlint · native rule: max-lines-per-function
+  Coverage: JavaScript: Provided by native linter
+  Default: disabled
+  Settings: max: number; skipBlankLines: boolean; skipComments: boolean; IIFEs: boolean; Preset
+  Recommended: warn {"max":40,"skipBlankLines":true,"skipComments":true,"IIFEs":true}
+  Project: disabled (no Oxlint config; documented default)
+  Legibility runner: not configured
+  Docs: https://github.com/yowainwright/legibility/blob/main/docs/rules.md#leg038-javascript-typescript-oxlint
 ```
 
 Automatic edits support simple Oxlint JSON and JSONC configs. Inherited, overridden, nested, and TypeScript configs are reported as unsupported.
@@ -369,10 +383,10 @@ Identifies the configuration format version.
 
 ### `languages`
 
-> Type: **`object`**
-> Default: **`{}`**
+> Type: **`string[]` or an object keyed by language ID**
+> Optional
 
-Stores language IDs detected during guided setup. The CLI currently uses configured linter IDs to decide what runs.
+Stores language IDs selected during guided setup. Setup writes a string array when there are no per-language settings. The keyed object form is reserved for language-specific settings; none currently affect CLI behavior. The CLI uses configured linter IDs to decide what runs.
 
 ### `linters`
 
@@ -428,9 +442,7 @@ Example `legibility.json`:
 ```json
 {
   "$schema": "https://unpkg.com/legibility/src/schema.json",
-  "languages": {
-    "typescript": {}
-  },
+  "languages": ["typescript"],
   "linters": {
     "oxlint-plugin-legibility": {
       "enabled": true,

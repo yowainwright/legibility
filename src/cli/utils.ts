@@ -19,7 +19,6 @@ import { promptCheckbox, promptConfirm, promptInput } from "./prompts/index.ts";
 import type {
   CommandAvailability,
   DetectedLanguage,
-  JsonObject,
   Linter,
   LinterDefinition,
   Source,
@@ -142,11 +141,8 @@ export const promptForLinterConfig = async (names: string[]): Promise<Record<str
 };
 
 const setupConfig = (languages: string[], linters: Record<string, Linter>): Source["config"] => {
-  const configuredLanguages = Object.fromEntries(
-    languages.map((language) => [language, {} as JsonObject]),
-  );
   return {
-    languages: configuredLanguages,
+    languages,
     linters,
     updates: {
       enabled: true,

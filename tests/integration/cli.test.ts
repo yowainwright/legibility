@@ -233,7 +233,7 @@ test("preserves unknown config and linter fields", (t) => {
   const loaded = readSource(configPath);
 
   assert.deepEqual(loaded.config.futureProjectField, { enabled: true });
-  assert.deepEqual(loaded.config.languages.typescript.futureLanguageField, "kept");
+  assert.deepEqual(loaded.config.languages, { typescript: { futureLanguageField: "kept" } });
   assert.deepEqual(loaded.config.linters["future-linter"].futureLinterField, { mode: "kept" });
 });
 
