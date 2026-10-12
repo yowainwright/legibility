@@ -68,15 +68,20 @@ const errorMessage = (error: unknown): string => {
   return String(error);
 };
 
-const generateReadme = async (): Promise<void> => {
+const generateReadme = async (checkOnly: boolean): Promise<void> => {
   const source = readFileSync(README_FILE, "utf8");
   const updated = replaceToolsTable(source);
   const formatted = await formatReadme(updated);
-  if (formatted !== source) writeFileSync(README_FILE, formatted);
+  const current = checkOnly ? await formatReadme(source) : source;
+  if (formatted === current) return;
+  if (checkOnly) {
+    throw new Error("README tools table is out of date; run pnpm run readme:generate");
+  }
+  writeFileSync(README_FILE, formatted);
 };
 
 try {
-  await generateReadme();
+  await generateReadme(process.argv.includes("--check"));
 } catch (error: unknown) {
   process.stderr.write(`${errorMessage(error)}\n`);
   process.exitCode = 1;

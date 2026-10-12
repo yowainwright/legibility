@@ -237,6 +237,23 @@ test("preserves unknown config and linter fields", (t) => {
   assert.deepEqual(loaded.config.linters["future-linter"].futureLinterField, { mode: "kept" });
 });
 
+test("reads language lists and allows omitted languages", (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  const configPath = writeConfig(fixture.root, {
+    languages: ["typescript"],
+    linters: {},
+  });
+
+  assert.deepEqual(readSource(configPath).config.languages, ["typescript"]);
+  writeConfig(fixture.root, { languages: [], linters: {} });
+  assert.deepEqual(readSource(configPath).config.languages, []);
+  writeConfig(fixture.root, { linters: {} });
+  assert.equal(readSource(configPath).config.languages, undefined);
+  writeConfig(fixture.root, { languages: ["typescript", false], linters: {} });
+  assert.throws(() => readSource(configPath), /languages must be an array of strings or an object/);
+});
+
 test("defaults project updates to enabled Homebrew prompts", (t) => {
   const fixture = createFixture();
   t.after(fixture.cleanup);
