@@ -493,6 +493,26 @@ test("runs a configured linter from the project bin and returns its exit code", 
   assert.equal(readFileSync(logPath, "utf8"), "check\n--staged\n");
 });
 
+test("runs legacy Go configs through golangci-lint with saved arguments", async (t) => {
+  const fixture = createFixture();
+  t.after(fixture.cleanup);
+  createFakeLinter(fixture.root, "golangci-lint");
+  const logPath = join(fixture.root, "calls.log");
+  const previousEnvironment = { LEGIBILITY_TEST_LOG: process.env.LEGIBILITY_TEST_LOG };
+  process.env.LEGIBILITY_TEST_LOG = logPath;
+  t.after(() => restoreEnvironment(previousEnvironment));
+  const configPath = writeConfig(fixture.root, {
+    linters: {
+      "golangci-lint-legibility": { enabled: true, args: ["run", "./..."] },
+    },
+  });
+
+  const exitCode = await runLinters(readSource(configPath), options());
+
+  assert.equal(exitCode, 0);
+  assert.equal(readFileSync(logPath, "utf8"), "run\n./...\n");
+});
+
 test("does not spawn a linter during a dry run", async (t) => {
   const fixture = createFixture();
   t.after(fixture.cleanup);

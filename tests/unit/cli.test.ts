@@ -8,7 +8,7 @@ import {
   parseHomebrewOutdated,
   parseOptions,
 } from "../../src/cli/index.ts";
-import { LINTER_DEFINITIONS, STYLEGUIDE_TOUR_CHOICES } from "../../src/cli/constants.ts";
+import { CONFIG_LINTER_DEFINITIONS, STYLEGUIDE_TOUR_CHOICES } from "../../src/cli/constants.ts";
 import { promptCheckbox, setPromptLine } from "../../src/cli/prompts/index.ts";
 import { promptForLinterInstall, promptForLinters } from "../../src/cli/utils.ts";
 import type { JsonObject } from "../../src/cli/types.ts";
@@ -150,7 +150,7 @@ test("publishes every supported linter ID in the schema", () => {
   assert.equal(schema.additionalProperties, true);
   assert.deepEqual(
     propertyNames.enum,
-    LINTER_DEFINITIONS.map(({ id }) => id),
+    CONFIG_LINTER_DEFINITIONS.map(({ id }) => id),
   );
 });
 

@@ -147,6 +147,19 @@ export const LINTER_DEFINITIONS: LinterDefinition[] = [
   },
 ];
 
+export const LEGACY_LINTER_DEFINITIONS: LinterDefinition[] = [
+  {
+    id: "golangci-lint-legibility",
+    command: "golangci-lint",
+    kind: "hosted",
+    description: "Go readability policy",
+    languages: ["go"] as const,
+  },
+];
+
+export const CONFIG_LINTER_DEFINITIONS: LinterDefinition[] =
+  LINTER_DEFINITIONS.concat(LEGACY_LINTER_DEFINITIONS);
+
 export const STYLEGUIDE_PREVIEW_MARK = "◆";
 export const STYLEGUIDE_CANCEL_MARK = "✗";
 

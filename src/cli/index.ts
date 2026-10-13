@@ -20,6 +20,7 @@ import {
   type ParseError,
 } from "jsonc-parser";
 import {
+  CONFIG_LINTER_DEFINITIONS,
   CONFIG_FILENAMES,
   HELP_TEXT,
   IGNORED_DIRECTORIES,
@@ -539,7 +540,7 @@ const selectedLinters = (
   names: string[],
 ): ReadonlyArray<readonly [LinterDefinition, Linter]> => {
   const selected = names.length > 0 ? names : Object.keys(config.linters);
-  const definitions = new Map(LINTER_DEFINITIONS.map((item) => [item.id, item] as const));
+  const definitions = new Map(CONFIG_LINTER_DEFINITIONS.map((item) => [item.id, item] as const));
   const entries = selected.map((id) => {
     const linter = config.linters[id];
     if (!linter) throw new Error(`linter is not configured: ${id}`);
@@ -579,7 +580,7 @@ const configuredUpdateIds = (source: Source | undefined): string[] => {
 
 const updateIds = (source: Source | undefined, options: Options): string[] => {
   const ids = options.linters.length > 0 ? options.linters : configuredUpdateIds(source);
-  const supported = new Set(LINTER_DEFINITIONS.map(({ id }) => id));
+  const supported = new Set(CONFIG_LINTER_DEFINITIONS.map(({ id }) => id));
   const unsupported = ids.filter((id) => !supported.has(id));
   if (unsupported.length > 0) throw new Error(`linter is not supported: ${unsupported.join(", ")}`);
   return ids;
@@ -690,7 +691,9 @@ const updateHomebrewLinters = async (
 };
 
 const installHomebrewLinters = (root: string, ids: string[], log: Logger): Promise<number> => {
-  const definitions = new Map(LINTER_DEFINITIONS.map((definition) => [definition.id, definition]));
+  const definitions = new Map(
+    CONFIG_LINTER_DEFINITIONS.map((definition) => [definition.id, definition]),
+  );
   const formulas = ids.flatMap((id) => {
     const definition = definitions.get(id);
     if (definition === undefined) return [];
