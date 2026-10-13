@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://unpkg.com/legibility/src/schema.json",
-  "x-revision": 3,
+  "x-revision": 5,
   "x-history": "https://github.com/yowainwright/legibility/commits/main/src/schema.json",
   "title": "Legibility Configuration",
   "description": "Configuration for selecting and invoking Legibility linters.",
@@ -20,11 +20,19 @@
       "description": "Configuration format version."
     },
     "languages": {
-      "type": "object",
-      "additionalProperties": {
-        "$ref": "#/$defs/language"
-      },
-      "description": "Languages used by the project, keyed by stable language ID."
+      "oneOf": [
+        {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/language"
+          }
+        }
+      ],
+      "description": "Language IDs used by the project, as a list or keyed by stable language ID when language settings are present."
     },
     "linters": {
       "type": "object",
@@ -35,16 +43,17 @@
           "struct-lint",
           "eslint-plugin-legibility",
           "oxlint-plugin-legibility",
-          "golangci-lint-legibility",
+          "go-lint-legibility",
           "ruff-legibility",
           "shellcheck-legibility",
-          "sqlfluff-plugin-legibility"
+          "sqlfluff-plugin-legibility",
+          "golangci-lint-legibility"
         ]
       },
       "additionalProperties": {
         "$ref": "#/$defs/linter"
       },
-      "description": "Linter configuration, keyed by stable linter ID."
+      "description": "Linter configuration, keyed by stable linter ID. Existing configurations may use the legacy golangci-lint-legibility ID."
     },
     "updates": {
       "$ref": "#/$defs/updates",

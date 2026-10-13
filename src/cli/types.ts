@@ -1,4 +1,5 @@
 export type JsonObject = Record<string, unknown>;
+export type Languages = string[] | Record<string, JsonObject>;
 
 export type Linter = JsonObject & {
   enabled: boolean;
@@ -41,7 +42,7 @@ export type DetectedLanguage = {
 
 export type Config = JsonObject & {
   linters: Record<string, Linter>;
-  languages: Record<string, JsonObject>;
+  languages?: Languages;
   updates: UpdateConfig;
 };
 

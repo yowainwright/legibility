@@ -117,8 +117,8 @@ export const LINTER_DEFINITIONS: LinterDefinition[] = [
     languages: ["javascript", "typescript"] as const,
   },
   {
-    id: "golangci-lint-legibility",
-    command: "golangci-lint",
+    id: "go-lint-legibility",
+    command: "go-lint-legibility",
     kind: "hosted",
     description: "Go readability policy",
     languages: ["go"] as const,
@@ -146,6 +146,19 @@ export const LINTER_DEFINITIONS: LinterDefinition[] = [
     languages: ["sql"] as const,
   },
 ];
+
+export const LEGACY_LINTER_DEFINITIONS: LinterDefinition[] = [
+  {
+    id: "golangci-lint-legibility",
+    command: "golangci-lint",
+    kind: "hosted",
+    description: "Go readability policy",
+    languages: ["go"] as const,
+  },
+];
+
+export const CONFIG_LINTER_DEFINITIONS: LinterDefinition[] =
+  LINTER_DEFINITIONS.concat(LEGACY_LINTER_DEFINITIONS);
 
 export const STYLEGUIDE_PREVIEW_MARK = "◆";
 export const STYLEGUIDE_CANCEL_MARK = "✗";

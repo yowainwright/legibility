@@ -1,18 +1,21 @@
 # Legibility
 
-[![CI](https://github.com/yowainwright/legibility/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/yowainwright/legibility/actions/workflows/ci.yml)
-[![Version](https://img.shields.io/github/v/release/yowainwright/legibility?label=version)](https://github.com/yowainwright/legibility/releases/latest)
-[![License: MIT](https://img.shields.io/github/license/yowainwright/legibility)](LICENSE)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
-Legibility is a group of CLI tools for helping agents and humans write more readable code. All plugins and linters in the Legibility stack can be used standalone or via this CLI.
-
-## Preface
-
-Over the last year, code has largely shifted from human-written to AI-written. Agentic skills help enforce clear patterns, but another way is small linters and plugins. The goal of the rules in these tools is to stay hands-off – enforcing rules that make it easier to read thousands of lines of code a day, maybe 10s of PRs.
+Legibility is a group of CLI tools for helping humans and agents write more readable code.
+All plugins and linters in the Legibility stack can be used standalone or via this CLI.
 
 ---
 
-This README documents the initial CLI contract for the Legibility CLI, which helps set up legibility tools as a group of linters and plugins, or each tool on its own. This project is new. Commands and configuration will change, but backwards compatibility is a priority. We'll try to reserve major releases for big changes.
+## Preface
+
+Over the last year, code has largely shifted from human-written to AI-written. Agentic skills help enforce clear patterns, but this can be further improved with small linters and plugin tools to improve code legibility. The goal of these tools is to provide hands-off, rules that make code easier to read, write, and compile thousands of lines a day.
+
+---
+
+This README documents the initial CLI contract for the Legibility CLI, which helps set up legibility tools as a group of linters and plugins, or, so each tool on its own.
+
+---
 
 ## Install
 
@@ -22,7 +25,7 @@ For stable releases, install with Homebrew:
 brew install yowainwright/tap/legibility
 ```
 
-Or, via a JS distro:
+Or, via a JS distro. For example:
 
 ```sh
 npm install legibility -g
@@ -30,15 +33,59 @@ npm install legibility -g
 
 Homebrew installs a native binary and does not require Node.js. The npm package requires Node.js 24 or newer.
 
+---
+
 ## Run
 
-From a project directory, start guided setup or run the discovered configuration:
+From a project directory, start guided setup or run the discovered configuration.
+
+In a terminal, setup detects project languages, offers supported linters, previews selected commands, and asks before saving `legibility.json` or running them. Without a terminal, provide an existing configuration.
+
+Hosted linters like ESLint and Oxlint stay project-managed dependencies. Setup can use Homebrew to install Legibility's native linters.
+
+---
+
+### Example
+
+**1. Command**
 
 ```sh
 legibility
 ```
 
-In a terminal, setup detects project languages, offers supported linters, previews selected commands, and asks before saving `legibility.json` or running them. Without a terminal, provide an existing configuration.
+---
+
+**2. Generated output**
+
+After selecting TypeScript and an available Oxlint integration and approving the save, Legibility writes this file:
+
+```text
+my-project/
+└── legibility.json
+```
+
+For example, entering `--deny-warnings` as the Oxlint arguments produces:
+
+```json
+{
+  "languages": ["typescript"],
+  "linters": {
+    "oxlint-plugin-legibility": {
+      "enabled": true,
+      "args": ["--deny-warnings"]
+    }
+  },
+  "updates": {
+    "enabled": true,
+    "manager": "brew",
+    "prompt": true
+  }
+}
+```
+
+---
+
+### Preview
 
 Preview configured commands without running linters:
 
@@ -46,12 +93,42 @@ Preview configured commands without running linters:
 legibility --dry-run
 ```
 
-Hosted linters like ESLint and Oxlint stay project-managed dependencies. Setup can offer Homebrew installation for supported native linters.
+**Output**
+
+```text
+"oxlint" "--deny-warnings"
+```
+
+<!-- generated:available-tools:start -->
+
+## Available linters and plugins
+
+### Linters
+
+| Name                          | Command       | Languages                                 | What it checks                 |
+| ----------------------------- | ------------- | ----------------------------------------- | ------------------------------ |
+| [`fs-lint`](#fs-lint)         | `fs-lint`     | All detected languages                    | file and path policy           |
+| [`src-lint`](#src-lint)       | `src-lint`    | JavaScript, TypeScript, Python, Go, Proto | import boundary policy         |
+| [`struct-lint`](#struct-lint) | `struct-lint` | All detected languages                    | declaration and function order |
+
+### Plugins
+
+| Name                                                        | Command                 | Languages              | What it checks                               |
+| ----------------------------------------------------------- | ----------------------- | ---------------------- | -------------------------------------------- |
+| [`eslint-plugin-legibility`](#eslint-plugin-legibility)     | `eslint`                | JavaScript, TypeScript | JavaScript and TypeScript readability policy |
+| [`oxlint-plugin-legibility`](#oxlint-plugin-legibility)     | `oxlint`                | JavaScript, TypeScript | JavaScript and TypeScript readability policy |
+| [`go-lint-legibility`](#go-lint-legibility)                 | `go-lint-legibility`    | Go                     | Go readability policy                        |
+| [`ruff-legibility`](#ruff-legibility)                       | `ruff`                  | Python                 | Python readability policy                    |
+| [`shellcheck-legibility`](#shellcheck-legibility)           | `shellcheck-legibility` | Shell                  | Shell readability policy                     |
+| [`sqlfluff-plugin-legibility`](#sqlfluff-plugin-legibility) | `sqlfluff`              | SQL                    | SQL and Jinja comment policy                 |
+
+<!-- generated:available-tools:end -->
+
+---
 
 ## CLI API
 
 Full reference: run `legibility --help`.
-
 The examples below assume `legibility` is on `PATH`.
 
 ### `legibility`
@@ -67,11 +144,14 @@ legibility --dry-run
 
 Use `--dry-run` to inspect selected linter commands before execution.
 
+---
+
 ### `legibility update`
 
 > Type: **`command`**
 
-Refreshes Homebrew metadata and offers updates for supported Homebrew-backed linters. An eligible interactive run also checks for Homebrew linter updates before linting.
+Refreshes Homebrew metadata and offers updates for supported Homebrew-backed linters.
+An eligible interactive run also checks for Homebrew linter updates before linting.
 
 ```sh
 legibility update
@@ -79,7 +159,20 @@ legibility update
 
 Use this to update linters without running the project's checks. See [`updates` configuration](#updates) for prompt and enablement behavior.
 
-With the default `updates.prompt: true`, `legibility update` requires an interactive terminal. Set [`updates.prompt`](#updatesprompt) to `false` for non-interactive updates.
+Set `updates.prompt` to `false` to make eligible updates non-interactive:
+
+```diff
+ "updates": {
+   "enabled": true,
+   "manager": "brew",
+-  "prompt": true
++  "prompt": false
+ }
+```
+
+With the default `updates.prompt: true`, `legibility update` requires an interactive terminal. Setting it to `false` refreshes Homebrew metadata and applies all eligible updates without prompting.
+
+---
 
 ### `legibility rules [--search <terms>]`
 
@@ -91,7 +184,20 @@ Searches the shared rule catalog. Search terms use AND matching across rule cont
 legibility rules --search "function length"
 ```
 
-Use this to find a rule by ID, name, description, example, language, or tool. The [shared rule catalog](docs/rules.md) documents rule mappings and coverage.
+Use this to find a rule by ID, name, description, example, language, or tool.
+The [shared rule catalog](docs/rules.md) documents rule mappings and coverage.
+
+The [LEG038 example](docs/rules.md#leg038-javascript-typescript-oxlint) illustrates a refactor under a three-line limit:
+
+```diff
+- function renderTitle(value) {
+-   const title = value.trim();
+-   return title;
+- }
++ function renderTitle(value) {
++   return value.trim();
++ }
+```
 
 #### `--search <terms>`
 
@@ -103,6 +209,32 @@ Filters `rules` results. Every space-separated term must match; matching is case
 legibility rules --search "function length"
 ```
 
+Search only reports matching rules; it does not change files. After finding LEG038, you can enable its Oxlint mapping with the `legibility rule` command:
+
+```sh
+legibility rule LEG038 --language javascript --plugin oxlint --enable
+```
+
+For an existing `.oxlintrc.jsonc`, enabling the mapping changes the rule setting like this:
+
+```diff
+   "rules": {
+-    "max-lines-per-function": "off",
++    "max-lines-per-function": [
++      "warn",
++      {
++        "max": 40,
++        "skipBlankLines": true,
++        "skipComments": true,
++        "IIFEs": true
++      }
++    ],
+     "no-debugger": "warn"
+   }
+```
+
+---
+
 ### `legibility rule <id>`
 
 > Type: **`command`**
@@ -111,7 +243,23 @@ Shows rule details and a language/plugin mapping. Add `--language` or `--plugin`
 
 ```sh
 legibility rule LEG038 --language javascript --plugin oxlint
-legibility rule LEG038 --language javascript --plugin oxlint --enable --dry-run
+```
+
+Example output with no project Legibility config or Oxlint config:
+
+```text
+LEG038 — max-function-lines
+Limit functions to a focused line budget.
+Topics: functions, complexity
+
+JavaScript · Oxlint · native rule: max-lines-per-function
+  Coverage: JavaScript: Provided by native linter
+  Default: disabled
+  Settings: max: number; skipBlankLines: boolean; skipComments: boolean; IIFEs: boolean; Preset
+  Recommended: warn {"max":40,"skipBlankLines":true,"skipComments":true,"IIFEs":true}
+  Project: disabled (no Oxlint config; documented default)
+  Legibility runner: not configured
+  Docs: https://github.com/yowainwright/legibility/blob/main/docs/rules.md#leg038-javascript-typescript-oxlint
 ```
 
 Automatic edits support simple Oxlint JSON and JSONC configs. Inherited, overridden, nested, and TypeScript configs are reported as unsupported.
@@ -146,6 +294,8 @@ Enables the selected supported rule mapping in a simple Oxlint JSON or JSONC con
 ```sh
 legibility rule LEG038 --language javascript --plugin oxlint --enable --dry-run
 ```
+
+---
 
 ### `--config <path>`, `-c`
 
@@ -225,6 +375,8 @@ Opens an interactive tour of the setup prompts. Does not save configuration, ins
 legibility --styleguide
 ```
 
+---
+
 ## Configuration
 
 Legibility reads JSON configuration from a file or from `package.json#legibility`.
@@ -256,10 +408,10 @@ Identifies the configuration format version.
 
 ### `languages`
 
-> Type: **`object`**
-> Default: **`{}`**
+> Type: **`string[]` or an object keyed by language ID**
+> Optional
 
-Stores language IDs detected during guided setup. The CLI currently uses configured linter IDs to decide what runs.
+Stores language IDs selected during guided setup. Setup writes a string array when there are no per-language settings. The keyed object form is reserved for language-specific settings; none currently affect CLI behavior. The CLI uses configured linter IDs to decide what runs.
 
 ### `linters`
 
@@ -315,9 +467,7 @@ Example `legibility.json`:
 ```json
 {
   "$schema": "https://unpkg.com/legibility/src/schema.json",
-  "languages": {
-    "typescript": {}
-  },
+  "languages": ["typescript"],
   "linters": {
     "oxlint-plugin-legibility": {
       "enabled": true,
@@ -332,6 +482,8 @@ Example `legibility.json`:
 }
 ```
 
+---
+
 ## Linters
 
 These standalone Legibility commands are registered by the CLI. Configure each ID under `linters`.
@@ -342,17 +494,23 @@ These standalone Legibility commands are registered by the CLI. Configure each I
 
 Checks file and path policy.
 
+---
+
 ### `src-lint`
 
 > Command: **`src-lint`** – Languages: **JavaScript, TypeScript, Python, Go, Proto**
 
 Checks import boundary policy.
 
+---
+
 ### `struct-lint`
 
 > Command: **`struct-lint`** – Languages: **all detected languages**
 
 Checks declaration and function order.
+
+---
 
 ## Plugins
 
@@ -364,17 +522,32 @@ These plugin integrations are registered by the CLI. Configure each ID under `li
 
 Provides readability rules for [ESLint](https://github.com/yowainwright/eslint-plugin-legibility).
 
+---
+
 ### `oxlint-plugin-legibility`
 
 > Command: **`oxlint`** – Languages: **JavaScript, TypeScript**
 
 Provides readability rules for [Oxlint](https://github.com/yowainwright/oxlint-plugin-legibility).
 
-### `golangci-lint-legibility`
+---
 
-> Command: **`golangci-lint`** – Languages: **Go**
+### `go-lint-legibility`
 
-Provides readability analyzers for [golangci-lint](https://github.com/yowainwright/golangci-lint-legibility).
+> Command: **`go-lint-legibility`** – Languages: **Go**
+
+Provides Go readability rules through the [Go module](https://github.com/yowainwright/go-lint-legibility).
+
+Install and run the standalone command:
+
+```sh
+go install github.com/yowainwright/go-lint-legibility/cmd/go-lint-legibility@latest
+go-lint-legibility ./...
+```
+
+The module also supports an optional `golangci-lint` plugin build; see its [setup instructions](https://github.com/yowainwright/go-lint-legibility#golangci-lint-plugin).
+
+---
 
 ### `ruff-legibility`
 
@@ -382,11 +555,15 @@ Provides readability analyzers for [golangci-lint](https://github.com/yowainwrig
 
 Provides readability rules for [Ruff](https://github.com/yowainwright/ruff-legibility).
 
+---
+
 ### `shellcheck-legibility`
 
 > Command: **`shellcheck-legibility`** – Languages: **Shell**
 
 Provides Shell readability checks ([project](https://github.com/yowainwright/shellcheck_legibility)).
+
+---
 
 ### `sqlfluff-plugin-legibility`
 
@@ -395,6 +572,8 @@ Provides Shell readability checks ([project](https://github.com/yowainwright/she
 Checks SQL and Jinja comment policy ([project](https://github.com/yowainwright/sqlfluff-plugin-legibility)).
 
 Rule mappings and language coverage are in the [shared rule catalog](docs/rules.md).
+
+---
 
 ## Performance targets
 
@@ -434,6 +613,8 @@ The current run waits for each linter before starting the next ([`runLinters`](s
 
 Legibility currently forwards native linter output directly. The agreed summary and pastel progress output are not part of the current CLI yet.
 
+---
+
 ## Exit status
 
 > Type: **process exit status**
@@ -445,9 +626,13 @@ Legibility currently forwards native linter output directly. The agreed summary 
 
 Because child statuses pass through, a linter may also return `2`; the exit status alone does not always identify whether Legibility or a linter failed.
 
+---
+
 ## Agent skill
 
 The npm package includes [`skills/legibility-workflow/SKILL.md`](skills/legibility-workflow/SKILL.md). Agent integrations can install it as a project skill to route setup and check execution through the CLI.
+
+---
 
 ## Development
 
@@ -459,3 +644,9 @@ pnpm run check
 pnpm test
 pnpm run test:e2e
 ```
+
+---
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

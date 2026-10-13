@@ -124,10 +124,10 @@ const assertNativeOutput = (logPath: string, result: ReturnType<typeof runNative
 
 const assertNativeConfiguration = (root: string): void => {
   const config = JSON.parse(readFileSync(join(root, "legibility.json"), "utf8")) as {
-    languages: Record<string, unknown>;
+    languages: string[];
     linters: Record<string, { args: string[] }>;
   };
-  assert.deepEqual(Object.keys(config.languages), ["typescript"]);
+  assert.deepEqual(config.languages, ["typescript"]);
   assert.deepEqual(Object.keys(config.linters), [
     "eslint-plugin-legibility",
     "oxlint-plugin-legibility",
