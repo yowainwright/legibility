@@ -24,7 +24,6 @@ import {
   CONFIG_FILENAMES,
   HELP_TEXT,
   IGNORED_DIRECTORIES,
-  LANGUAGE_BY_EXTENSION,
   LANGUAGE_DEFINITIONS,
   LINTER_DEFINITIONS,
   NO_SETUP_MESSAGE,
@@ -38,6 +37,9 @@ import {
   STYLEGUIDE_UPDATE_CHOICES,
   VERSION,
 } from "./constants.ts";
+import { diagnose } from "../lib/diagnose/index.ts";
+export { detectLanguages } from "../lib/diagnose/index.ts";
+import type { DetectedPackageManager, DetectedTool } from "../lib/diagnose/types.ts";
 import { logger as createLogger } from "../obs/index.ts";
 import {
   commandLines,
@@ -63,7 +65,6 @@ import type { PromptKeyReader, PromptLine } from "./prompts/types.ts";
 import type {
   Config,
   CommandRunner,
-  DetectedLanguage,
   HomebrewFormulaPayload,
   HomebrewLinterUpdate,
   HomebrewOutdatedFormula,
@@ -388,33 +389,6 @@ const readFiles = (directory: string, prefix = ""): string[] => {
     if (IGNORED_DIRECTORIES.has(entry.name)) return [];
     return readFiles(join(directory, entry.name), relativePath);
   });
-};
-
-const emptyLanguageMatches = (): Record<string, string[]> =>
-  Object.fromEntries(LANGUAGE_DEFINITIONS.map(({ id }) => [id, [] as string[]]));
-
-const recordLanguageFile = (file: string, matches: Record<string, string[]>): void => {
-  const extension = extname(file).toLowerCase();
-  if (!Object.hasOwn(LANGUAGE_BY_EXTENSION, extension)) return;
-  const languageId = LANGUAGE_BY_EXTENSION[extension as keyof typeof LANGUAGE_BY_EXTENSION];
-  if (languageId) matches[languageId] = matches[languageId].concat(file);
-};
-
-const detectedLanguages = (matchesByLanguage: Record<string, string[]>): DetectedLanguage[] =>
-  LANGUAGE_DEFINITIONS.map((definition) => {
-    const matches = matchesByLanguage[definition.id];
-    return {
-      id: definition.id,
-      label: definition.label,
-      count: matches.length,
-      files: matches.slice(0, 3),
-    };
-  }).filter(({ count }) => count > 0);
-
-export const detectLanguages = (root: string): DetectedLanguage[] => {
-  const matchesByLanguage = emptyLanguageMatches();
-  readFiles(root).forEach((file) => recordLanguageFile(file, matchesByLanguage));
-  return detectedLanguages(matchesByLanguage);
 };
 
 const accessPath = (path: string): boolean => {
@@ -1071,15 +1045,21 @@ const setupOptions = (source: Source, names: string[], verbose: boolean): Option
 
 type SetupProjectSelection = { exitCode: number } | { names: string[] };
 
+const packageManagerDescription = (manager: DetectedPackageManager): string => {
+  const signalKinds = new Set(manager.evidence.map(({ kind }) => kind));
+  return `${manager.id} (${Array.from(signalKinds).join(" + ")})`;
+};
+
 const selectSetupLinters = async (
   root: string,
   languages: string[],
+  tools: DetectedTool[],
   log: Logger,
 ): Promise<SetupProjectSelection> => {
   const installIds = await promptForLinterInstall(languages, root, commandIsAvailable);
   const installExit = await installHomebrewLinters(root, installIds, log);
   if (installExit !== 0) return { exitCode: installExit };
-  const names = await promptForLinters(languages, root, commandIsAvailable);
+  const names = await promptForLinters(languages, root, commandIsAvailable, tools);
   if (names !== undefined) return { names };
   log.fail("No supported Legibility linter is installed.");
   log.debug("No linters available", "setupProject");
@@ -1127,10 +1107,14 @@ const reportMissingConfig = (log: Logger): number => {
 
 const setupProject = async (log: Logger, verbose: boolean): Promise<number> => {
   const root = resolve(process.cwd());
-  const detected = detectLanguages(root);
-  const languages = await promptForLanguages(detected);
+  const diagnosis = await diagnose(root);
+  const packageManagerSummary = diagnosis.packageManagers.map(packageManagerDescription);
+  if (packageManagerSummary.length > 0) {
+    log.print(`Detected package managers: ${packageManagerSummary.join(", ")}.`);
+  }
+  const languages = await promptForLanguages(diagnosis.languages);
   log.debug(`Languages: ${languages.join(",") || "none"}`, "setupProject");
-  const selection = await selectSetupLinters(root, languages, log);
+  const selection = await selectSetupLinters(root, languages, diagnosis.tools, log);
   if ("exitCode" in selection) return selection.exitCode;
   const { names } = selection;
   log.debug(`Linters: ${names.join(",")}`, "setupProject");
@@ -1779,7 +1763,7 @@ const runConfiguredCommand = async (options: Options, log: Logger): Promise<numb
     if (options.rule) return runRule(options, log);
     if (options.update) return await runUpdate(options, log);
     const source = readRunSource(options);
-    if (!source) return promptForSetup(options);
+    if (!source) return await promptForSetup(options);
     await checkForUpdates(source, options, log);
     return await runLinters(source, options);
   } catch (error: unknown) {

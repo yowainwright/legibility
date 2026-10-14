@@ -33,6 +33,7 @@ const renderRuntimeEntry = (): string =>
     'import { runWithPrompt } from "../../src/cli/index.ts";',
     "",
     "export { runWithPrompt };",
+    'export { setGitOutputReader } from "../../src/lib/diagnose/index.ts";',
     "",
   ].join("\n");
 
@@ -86,24 +87,69 @@ const renderCommandRunner = (): string =>
     "  });",
   ].join("\n");
 
+const renderGitOutputPipe = (): string =>
+  [
+    "const pipeGitOutput = (child: ChildProcess, consume: any): Promise<void> =>",
+    "  new Promise((resolve, reject) => {",
+    '    child.on("error", (error: Error) => reject(error));',
+    "    const output = child.stdout;",
+    '    if (!output) { reject(new Error("Git inventory did not provide stdout")); return; }',
+    '    output.once("end", resolve);',
+    "    const next = (): void => {",
+    '      output.once("data", (chunk: Uint8Array) => {',
+    "        consume(chunk).then(next).catch((error: any) => reject(new Error(String(error))));",
+    "      });",
+    "    };",
+    "    next();",
+    "  });",
+  ].join("\n");
+
+const renderGitOutputReader = (): string =>
+  [
+    "const readGitOutput = async (root: string, args: string[], consume: any, registerCancel: any): Promise<number> => {",
+    '  const child = spawn("git", args, { cwd: root, stdio: ["ignore", "pipe", "ignore"] });',
+    '  const exit = new Promise<number>((resolve) => { child.on("exit", (code) => resolve(code ?? 1)); });',
+    "  registerCancel(() => { child.kill(); });",
+    "  try {",
+    "    await pipeGitOutput(child, consume);",
+    "    return await exit;",
+    "  } catch (error) {",
+    "    process.stderr.write(`Git inventory failed: ${String(error)}\\n`);",
+    "    return 127;",
+    "  } finally {",
+    "    child.kill();",
+    "  }",
+    "};",
+  ].join("\n");
+
+const renderBinaryMain = (): string =>
+  [
+    "const main = async (): Promise<void> => {",
+    "  setGitOutputReader(readGitOutput);",
+    "  try {",
+    "    const exitCode = await runWithPrompt(process.argv.slice(2), promptLine, runCommand, readKey);",
+    "    process.exit(exitCode);",
+    "  } finally {",
+    "    setGitOutputReader(undefined);",
+    "  }",
+    "};",
+    "void main();",
+  ].join("\n");
+
 const renderBinaryEntry = (): string =>
   [
-    'import { runWithPrompt } from "legibility-runtime";',
+    'import { runWithPrompt, setGitOutputReader } from "legibility-runtime";',
     'import { existsSync } from "node:fs";',
-    'import { spawn } from "node:child_process";',
+    'import { spawn, type ChildProcess } from "node:child_process";',
     'import * as readline from "node:readline";',
     'import { join } from "node:path";',
     "",
     renderPromptLine(),
     renderPromptKey(),
     renderCommandRunner(),
-    "",
-    "const main = async (): Promise<void> => {",
-    "  const exitCode = await runWithPrompt(process.argv.slice(2), promptLine, runCommand, readKey);",
-    "  process.exit(exitCode);",
-    "};",
-    "",
-    "void main();",
+    renderGitOutputPipe(),
+    renderGitOutputReader(),
+    renderBinaryMain(),
     "",
   ].join("\n");
 
@@ -123,6 +169,7 @@ const renderRuntimeTypes = (): string =>
     "export type PromptLine = (message: string) => Promise<string>;",
     "export type PromptKeyReader = () => Promise<string>;",
     "export type CommandRunner = (command: string, args: string[], root: string) => Promise<number>;",
+    "export declare function setGitOutputReader(reader: ((root: string, args: string[], consume: (chunk: Uint8Array) => Promise<void>, registerCancel: (cancel: () => void) => void) => Promise<number>) | undefined): void;",
     "export declare function runWithPrompt(args: string[], promptLine: PromptLine, commandRunner?: CommandRunner, promptKey?: PromptKeyReader): Promise<number>;",
     "",
   ].join("\n");

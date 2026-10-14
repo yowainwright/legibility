@@ -118,7 +118,7 @@ legibility --dry-run
 | [`eslint-plugin-legibility`](#eslint-plugin-legibility)     | `eslint`                | JavaScript, TypeScript | JavaScript and TypeScript readability policy |
 | [`oxlint-plugin-legibility`](#oxlint-plugin-legibility)     | `oxlint`                | JavaScript, TypeScript | JavaScript and TypeScript readability policy |
 | [`go-lint-legibility`](#go-lint-legibility)                 | `go-lint-legibility`    | Go                     | Go readability policy                        |
-| [`ruff-legibility`](#ruff-legibility)                       | `ruff`                  | Python                 | Python readability policy                    |
+| [`ruff-legibility`](#ruff-legibility)                       | `ruff-legibility`       | Python                 | Python readability policy                    |
 | [`shellcheck-legibility`](#shellcheck-legibility)           | `shellcheck-legibility` | Shell                  | Shell readability policy                     |
 | [`sqlfluff-plugin-legibility`](#sqlfluff-plugin-legibility) | `sqlfluff`              | SQL                    | SQL and Jinja comment policy                 |
 
@@ -551,9 +551,9 @@ The module also supports an optional `golangci-lint` plugin build; see its [setu
 
 ### `ruff-legibility`
 
-> Command: **`ruff`** – Languages: **Python**
+> Command: **`ruff-legibility`** – Languages: **Python**
 
-Provides readability rules for [Ruff](https://github.com/yowainwright/ruff-legibility).
+Checks Python readability with [ruff-legibility](https://github.com/yowainwright/ruff-legibility), a separate tool run alongside Ruff.
 
 ---
 
