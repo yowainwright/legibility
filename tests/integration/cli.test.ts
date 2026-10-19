@@ -11,14 +11,13 @@ import {
 } from "node:fs";
 import test from "node:test";
 import { delimiter, join } from "node:path";
+import { tmpdir } from "node:os";
 import { parse as parseJsonc } from "jsonc-parser";
 import { commandIsAvailable, readSource, runLinters } from "../../src/cli/index.ts";
 import type { Options, Source } from "../../src/cli/types.ts";
 
 const createFixture = (): { root: string; cleanup: () => void } => {
-  const temporaryDirectory = join(process.cwd(), "tmp");
-  mkdirSync(temporaryDirectory, { recursive: true });
-  const root = mkdtempSync(join(temporaryDirectory, "legibility-test-"));
+  const root = mkdtempSync(join(tmpdir(), "legibility-test-"));
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
 };
 

@@ -1,5 +1,5 @@
 import { existsSync, readFileSync, readdirSync, type Dirent } from "node:fs";
-import { opendir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 import { spawn, type ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { dirname, join, relative, resolve, sep } from "node:path";
@@ -165,8 +165,8 @@ const walkDirectory = async function* (
   directory: string,
   layer: IgnoreLayer,
 ): AsyncGenerator<string> {
-  const handle = await opendir(directory);
-  for await (const entry of handle) {
+  const entries = await readdir(directory, { withFileTypes: true });
+  for (const entry of entries) {
     const absolutePath = join(directory, entry.name);
     const isDirectory = entry.isDirectory();
     const relativePath = toPosixPath(relative(root, absolutePath));
