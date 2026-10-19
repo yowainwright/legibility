@@ -21,12 +21,12 @@ const expectBinary = ["/usr/bin/expect", "/usr/local/bin/expect", "/opt/homebrew
 );
 const cleanPath = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter);
 
-const checkNativeSetup = (t: TestContext, withGit: boolean): void => {
+const checkNativeSetup = (t: TestContext, withGit: boolean, path = cleanPath): void => {
   assert.ok(expectBinary, "expect is required for the native E2E test");
   assert.ok(existsSync(nativeBinary), "build the release binary before running native E2E");
   const root = createFixture(t, withGit);
   const logPath = join(root, "runs.log");
-  assertNativeFlow(root, logPath, runNativeFlow(root, logPath));
+  assertNativeFlow(root, logPath, runNativeFlow(root, logPath, path));
 };
 
 const createFixture = (t: TestContext, withGit: boolean): string => {
@@ -68,7 +68,11 @@ const assertNativeFlow = (
   assertNativeConfiguration(root);
 };
 
-const runNativeFlow = (root: string, logPath: string): ReturnType<typeof spawnSync> =>
+const runNativeFlow = (
+  root: string,
+  logPath: string,
+  path = cleanPath,
+): ReturnType<typeof spawnSync> =>
   spawnSync(expectBinary as string, ["-c", expectScript()], {
     cwd: process.cwd(),
     encoding: "utf8",
@@ -76,7 +80,7 @@ const runNativeFlow = (root: string, logPath: string): ReturnType<typeof spawnSy
       LEGIBILITY_NATIVE_E2E_BINARY: nativeBinary,
       LEGIBILITY_NATIVE_E2E_LOG: logPath,
       LEGIBILITY_NATIVE_E2E_ROOT: root,
-      PATH: cleanPath,
+      PATH: path,
     }),
     timeout: 20_000,
   });
@@ -164,3 +168,11 @@ test("runs native setup in a Git project", { skip: !nativeTestEnabled }, (t) => 
 test("runs native setup in a non-Git project", { skip: !nativeTestEnabled }, (t) => {
   checkNativeSetup(t, false);
 });
+
+test(
+  "runs native setup with Git metadata but no Git executable",
+  { skip: !nativeTestEnabled },
+  (t) => {
+    checkNativeSetup(t, true, join(tmpdir(), "legibility-no-git"));
+  },
+);

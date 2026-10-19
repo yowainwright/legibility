@@ -38,9 +38,15 @@ export const languageFilePaths = (root: string): Generator<string> => {
 };
 
 const iterateProjectFiles = async function* (root: string): AsyncGenerator<string> {
-  if (hasGitMetadata(root)) {
-    const deletedPaths = await collectPaths(gitPaths(root, ["ls-files", "--deleted"]));
-    const inventoryArgs = ["ls-files", "--cached", "--others", "--exclude-standard"];
+  const deletedPaths = await readDeletedGitPaths(root);
+  if (deletedPaths) {
+    const inventoryArgs = [
+      "ls-files",
+      "--cached",
+      "--others",
+      "--exclude-standard",
+      "--deduplicate",
+    ];
     for await (const path of gitPaths(root, inventoryArgs)) {
       if (!deletedPaths.has(path)) yield path;
     }
@@ -48,6 +54,25 @@ const iterateProjectFiles = async function* (root: string): AsyncGenerator<strin
   }
   const absoluteRoot = resolve(root);
   yield* walkDirectory(absoluteRoot, absoluteRoot, ignoreLayer(absoluteRoot));
+};
+
+const readDeletedGitPaths = async (root: string): Promise<Set<string> | undefined> => {
+  if (!hasGitMetadata(root)) return undefined;
+  try {
+    return await collectPaths(gitPaths(root, ["ls-files", "--deleted"]));
+  } catch (error) {
+    if (isGitUnavailable(error)) return undefined;
+    throw error;
+  }
+};
+
+const isGitUnavailable = (error: unknown): boolean => {
+  const isObject = typeof error === "object" && error !== null;
+  if (!isObject) return false;
+  if (!("code" in error)) return false;
+  const isMissingExecutable = error.code === "ENOENT";
+  const isCommandNotFound = error.code === 127;
+  return isMissingExecutable || isCommandNotFound;
 };
 
 const hasGitMetadata = (root: string): boolean => {
@@ -137,7 +162,9 @@ const gitExit = (child: ChildProcess): Promise<{ code: number; error?: Error }> 
 
 const assertGitExit = (result: { code: number; error?: Error }): void => {
   if (result.error) throw result.error;
-  if (result.code !== 0) throw new Error(`Git inventory exited with code ${result.code}`);
+  if (result.code === 0) return;
+  const error = new Error(`Git inventory exited with code ${result.code}`);
+  throw Object.assign(error, { code: result.code });
 };
 
 const gitPathStream = async function* (output: AsyncIterable<Uint8Array>): AsyncGenerator<string> {

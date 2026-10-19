@@ -95,6 +95,7 @@ const renderGitOutputPipe = (): string =>
     "    const output = child.stdout;",
     '    if (!output) { reject(new Error("Git inventory did not provide stdout")); return; }',
     '    output.once("end", resolve);',
+    "    // Scriptc pauses pipe reads between data listeners; reattach after consume settles.",
     "    const next = (): void => {",
     '      output.once("data", (chunk: Uint8Array) => {',
     "        consume(chunk).then(next).catch((error: any) => reject(new Error(String(error))));",

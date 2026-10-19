@@ -169,10 +169,13 @@ const recordPackageJson = (
   const manifest = parsePackageJson(content);
   if (!manifest) return;
   recordDeclaredPackageManager(manifest.packageManager, path, accumulator);
-  recordDependencies(manifest.dependencies, path, accumulator);
-  recordDependencies(manifest.devDependencies, path, accumulator);
-  recordDependencies(manifest.optionalDependencies, path, accumulator);
-  recordDependencies(manifest.peerDependencies, path, accumulator);
+  const dependencies = [
+    manifest.dependencies,
+    manifest.devDependencies,
+    manifest.optionalDependencies,
+    manifest.peerDependencies,
+  ];
+  recordDependencies(dependencies, path, accumulator);
   recordPackageScripts(manifest.scripts, path, accumulator);
 };
 
@@ -195,8 +198,8 @@ const recordGoModules = (
   path: string,
   accumulator: DiagnosisAccumulator,
 ): void => {
-  for (const line of content.split(/\r?\n/u)) {
-    const tool = goModuleInLine(line);
+  const tools = new Set(content.split(/\r?\n/u).map(goModuleInLine));
+  for (const tool of tools) {
     if (tool) recordTool(tool, "dependency", path, accumulator);
   }
 };
@@ -226,12 +229,13 @@ const recordDeclaredPackageManager = (
 };
 
 const recordDependencies = (
-  value: unknown,
+  values: unknown[],
   path: string,
   accumulator: DiagnosisAccumulator,
 ): void => {
-  if (!isObject(value)) return;
-  for (const packageName of Object.keys(value)) {
+  const groups = values.filter(isObject);
+  const packageNames = new Set(groups.flatMap(Object.keys));
+  for (const packageName of packageNames) {
     const tool = Object.hasOwn(PACKAGE_DEPENDENCY_TO_TOOL, packageName)
       ? PACKAGE_DEPENDENCY_TO_TOOL[packageName]
       : undefined;
@@ -245,12 +249,12 @@ const recordPackageScripts = (
   accumulator: DiagnosisAccumulator,
 ): void => {
   if (!isObject(value)) return;
-  const scripts = Object.values(value).filter(
-    (script): script is string => typeof script === "string",
-  );
+  const scripts = Object.values(value).filter((script) => typeof script === "string");
   const scriptText = scripts.join("\n");
-  for (const match of scriptText.matchAll(SCRIPT_COMMAND_PATTERN)) {
-    const command = match[1];
+  const commands = new Set(
+    Array.from(scriptText.matchAll(SCRIPT_COMMAND_PATTERN), (match) => match[1]),
+  );
+  for (const command of commands) {
     const tool =
       command && Object.hasOwn(SCRIPT_COMMAND_TO_TOOL, command)
         ? SCRIPT_COMMAND_TO_TOOL[command]

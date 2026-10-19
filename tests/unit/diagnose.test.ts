@@ -33,6 +33,14 @@ const expectedPythonAndGoTools = [
   },
 ];
 
+const repeatedToolManifest = JSON.stringify({
+  dependencies: { oxlint: "1" },
+  devDependencies: { oxlint: "1" },
+  optionalDependencies: { oxlint: "1" },
+  peerDependencies: { oxlint: "1" },
+  scripts: { lint: "oxlint .", fix: "oxlint --fix ." },
+});
+
 test("diagnoses non-Git projects with nested ignore rules", async (t) => {
   const root = createFixture(t);
   writeFiles(root, {
@@ -188,6 +196,69 @@ test("reports Git inventory failures instead of returning an empty diagnosis", a
   await assert.rejects(diagnose(root), /Git inventory exited with code 128/);
 });
 
+test("falls back to directory inspection when Git is not installed", async (t) => {
+  const root = createFixture(t, true);
+  writeFiles(root, { ".gitignore": "ignored/\n", "index.ts": "", "ignored/app.py": "" });
+  const originalEnvironment = Object.assign({}, process.env);
+  t.after(() => {
+    process.env = originalEnvironment;
+  });
+  process.env.PATH = join(root, "missing-bin");
+  const result = await diagnose(root);
+  assert.deepEqual(result.languages, [
+    { id: "typescript", label: "TypeScript", count: 1, files: ["index.ts"] },
+  ]);
+});
+
+test("falls back when the native Git reader reports command-not-found", async (t) => {
+  const root = createFixture(t, true);
+  writeFiles(root, { "index.ts": "" });
+  setGitOutputReader(() => Promise.resolve(127));
+  const result = await diagnose(root);
+  assert.equal(result.languages[0]?.count, 1);
+});
+
+test("counts a conflicted path once", async (t) => {
+  const root = createFixture(t, true);
+  writeFiles(root, { "index.ts": "", "package.json": '{"dependencies":{"oxlint":"1"}}' });
+  writeConflictedIndex(root, ["index.ts", "package.json"]);
+  const result = await diagnose(root);
+  assert.equal(result.languages[0]?.count, 1);
+  assert.deepEqual(result.tools, [
+    { id: "oxlint", evidence: [{ kind: "dependency", count: 1, paths: ["package.json"] }] },
+  ]);
+});
+
+test("counts repeated tool matches once per manifest and evidence kind", async (t) => {
+  const root = createFixture(t);
+  writeFiles(root, {
+    "a/package.json": repeatedToolManifest,
+    "b/package.json": repeatedToolManifest,
+  });
+  const result = await diagnose(root);
+  assert.deepEqual(result.tools, [
+    {
+      id: "oxlint",
+      evidence: [
+        { kind: "dependency", count: 2, paths: ["a/package.json", "b/package.json"] },
+        { kind: "invocation", count: 2, paths: ["a/package.json", "b/package.json"] },
+      ],
+    },
+  ]);
+});
+
+test("counts repeated Go module references once per file", async (t) => {
+  const root = createFixture(t);
+  writeFiles(root, {
+    "go.mod":
+      "require github.com/yowainwright/go-lint-legibility v0.4.1\nreplace github.com/yowainwright/go-lint-legibility => ../local\n",
+  });
+  const result = await diagnose(root);
+  assert.deepEqual(result.tools, [
+    { id: "go-lint-legibility", evidence: [{ kind: "dependency", count: 1, paths: ["go.mod"] }] },
+  ]);
+});
+
 test("propagates Git reader errors", async (t) => {
   const root = createFixture(t, true);
   setGitOutputReader(() => Promise.reject(new Error("Git reader unavailable")));
@@ -205,6 +276,23 @@ const createFixture = (t: TestContext, withGit = false): string => {
 const git = (root: string, ...args: string[]): void => {
   const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
   assert.equal(result.status, 0, result.stderr);
+};
+
+const writeConflictedIndex = (root: string, paths: string[]): void => {
+  const options = { cwd: root, input: "", encoding: "utf8" as const };
+  const blob = spawnSync("git", ["hash-object", "-w", "--stdin"], options);
+  assert.equal(blob.status, 0, blob.stderr);
+  const hash = blob.stdout.trim();
+  const entries = paths
+    .flatMap((path) => [
+      `100644 ${hash} 1\t${path}\n`,
+      `100644 ${hash} 2\t${path}\n`,
+      `100644 ${hash} 3\t${path}\n`,
+    ])
+    .join("");
+  const input = Object.assign({}, options, { input: entries });
+  const index = spawnSync("git", ["update-index", "--index-info"], input);
+  assert.equal(index.status, 0, index.stderr);
 };
 
 const writeFiles = (root: string, files: Record<string, string>): void => {
