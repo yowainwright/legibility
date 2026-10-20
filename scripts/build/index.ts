@@ -109,7 +109,10 @@ const renderGitOutputReader = (): string =>
   [
     "const readGitOutput = async (root: string, args: string[], consume: any, registerCancel: any): Promise<number> => {",
     '  const child = spawn("git", args, { cwd: root, stdio: ["ignore", "pipe", "ignore"] });',
-    '  const exit = new Promise<number>((resolve) => { child.on("exit", (code) => resolve(code ?? 1)); });',
+    "  const exit = new Promise<number>((resolve) => {",
+    '    child.on("error", () => resolve(127));',
+    '    child.on("exit", (code) => resolve(code ?? 1));',
+    "  });",
     "  registerCancel(() => { child.kill(); });",
     "  try {",
     "    await pipeGitOutput(child, consume);",
