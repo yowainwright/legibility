@@ -59,6 +59,30 @@ const writeFakeLinter = (directory: string, command: string): void => {
   chmodSync(path, 0o755);
 };
 
+const createLargeInventory = (root: string): void => {
+  const ids = Array.from({ length: 1024 }, (_, index) => String(index).padStart(4, "0"));
+  const manifest = JSON.stringify({ dependencies: { oxlint: "1" } });
+  ids.forEach((id) => {
+    const name = `${id}-é漢🙂-${"p".repeat(120)}`;
+    const directory = join(root, name);
+    mkdirSync(directory);
+    writeFileSync(join(directory, "index.ts"), "");
+    writeFileSync(join(directory, "package.json"), manifest);
+  });
+  const finalDirectory = join(root, "z-final");
+  mkdirSync(finalDirectory);
+  writeFileSync(join(finalDirectory, "index.ts"), "");
+  writeFileSync(join(finalDirectory, "package.json"), '{"dependencies":{"eslint":"1"}}');
+};
+
+const assertLargeInventory = (root: string): void => {
+  const args = ["ls-files", "--others", "--exclude-standard", "-z"];
+  const result = spawnSync("git", args, { cwd: root });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr.toString());
+  assert.ok(result.stdout.byteLength > 4 * 65536, "inventory must exceed four native chunks");
+};
+
 const assertNativeFlow = (
   root: string,
   logPath: string,
@@ -105,6 +129,8 @@ const expectSetupPrompts = (): string[] => [
 
 const expectLanguagePrompt = (): string[] => [
   'expect "Which languages should Legibility check?"',
+  'send "\\033\\[A"',
+  'expect "› ■ TypeScript (typescript)"',
   'send "\\r"',
 ];
 
@@ -168,6 +194,25 @@ test("runs native setup in a Git project", { skip: !nativeTestEnabled }, (t) => 
 test("runs native setup in a non-Git project", { skip: !nativeTestEnabled }, (t) => {
   checkNativeSetup(t, false);
 });
+
+test(
+  "preserves a large native Git inventory while reading manifests",
+  { skip: !nativeTestEnabled },
+  (t) => {
+    assert.ok(expectBinary, "expect is required for the native E2E test");
+    assert.ok(existsSync(nativeBinary), "build the release binary before running native E2E");
+    const root = createFixture(t, true);
+    createLargeInventory(root);
+    assertLargeInventory(root);
+    const logPath = join(root, "runs.log");
+    const result = runNativeFlow(root, logPath);
+    assertNativeFlow(root, logPath, result);
+    const output = result.stdout?.toString() ?? "";
+    assert.match(output, /1026 files/);
+    assert.match(output, /dependency declared in .*\(\+1023 more\)/);
+    assert.match(output, /dependency declared in z-final\/package\.json/);
+  },
+);
 
 test(
   "runs native setup with Git metadata but no Git executable",
