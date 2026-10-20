@@ -1,6 +1,8 @@
 export type JsonObject = Record<string, unknown>;
 export type Languages = string[] | Record<string, JsonObject>;
 
+export type { DetectedLanguage } from "../lib/diagnose/types.ts";
+
 export type Linter = JsonObject & {
   enabled: boolean;
   args: string[];
@@ -31,13 +33,6 @@ export type UpdateConfig = JsonObject & {
   enabled: boolean;
   manager: "brew";
   prompt: boolean;
-};
-
-export type DetectedLanguage = {
-  id: string;
-  label: string;
-  count: number;
-  files: string[];
 };
 
 export type Config = JsonObject & {

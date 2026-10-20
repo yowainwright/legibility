@@ -1,17 +1,17 @@
 import packageJson from "../../package.json" with { type: "json" };
 import type { DetectedLanguage, LinterDefinition } from "./types.ts";
 import type { PromptChoice } from "./prompts/types.ts";
+export {
+  IGNORED_DIRECTORIES,
+  LANGUAGE_BY_EXTENSION,
+  LANGUAGE_DEFINITIONS,
+  OXLINT_CONFIG_FILENAMES,
+  TOOL_BY_LINTER_ID,
+} from "../lib/diagnose/constants.ts";
 
 export const VERSION = packageJson.version;
 
 export const CONFIG_FILENAMES = [".legibilityrc", "legibility.json"] as const;
-export const OXLINT_CONFIG_FILENAMES = [
-  ".oxlintrc.json",
-  ".oxlintrc.jsonc",
-  "oxlint.config.ts",
-  "oxlint.config.mts",
-] as const;
-
 export const ANSI = {
   BOLD: "\x1b[1m",
   CYAN: "\x1b[36m",
@@ -21,60 +21,6 @@ export const ANSI = {
   RESET: "\x1b[0m",
   HIDE_CURSOR: "\x1b[?25l",
   SHOW_CURSOR: "\x1b[?25h",
-} as const;
-
-export const IGNORED_DIRECTORIES = new Set([
-  ".cache",
-  ".agents",
-  ".claude",
-  ".codex",
-  ".git",
-  ".next",
-  ".turbo",
-  ".tox",
-  ".venv",
-  "bin",
-  "build",
-  "coverage",
-  "dist",
-  "node_modules",
-  "target",
-  "tmp",
-  "vendor",
-  ".vscode",
-]);
-
-export const LANGUAGE_DEFINITIONS = [
-  { id: "c", label: "C" },
-  { id: "cpp", label: "C++" },
-  { id: "go", label: "Go" },
-  { id: "javascript", label: "JavaScript" },
-  { id: "proto", label: "Proto" },
-  { id: "python", label: "Python" },
-  { id: "shell", label: "Shell" },
-  { id: "sql", label: "SQL" },
-  { id: "typescript", label: "TypeScript" },
-];
-
-export const LANGUAGE_BY_EXTENSION = {
-  ".bash": "shell",
-  ".c": "c",
-  ".cc": "cpp",
-  ".cpp": "cpp",
-  ".cjs": "javascript",
-  ".cxx": "cpp",
-  ".go": "go",
-  ".h": "c",
-  ".hpp": "cpp",
-  ".js": "javascript",
-  ".jsx": "javascript",
-  ".mjs": "javascript",
-  ".proto": "proto",
-  ".py": "python",
-  ".sh": "shell",
-  ".sql": "sql",
-  ".ts": "typescript",
-  ".tsx": "typescript",
 } as const;
 
 export const LINTER_DEFINITIONS: LinterDefinition[] = [
@@ -125,7 +71,7 @@ export const LINTER_DEFINITIONS: LinterDefinition[] = [
   },
   {
     id: "ruff-legibility",
-    command: "ruff",
+    command: "ruff-legibility",
     kind: "hosted",
     description: "Python readability policy",
     languages: ["python"] as const,

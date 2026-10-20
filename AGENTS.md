@@ -51,3 +51,5 @@ First inspect existing tools, code, configuration, and documented workflows. Pre
 - If you cannot name it, do not edit. Ask: "I'm at `<file/component>`, implementing `<specific behavior>`. Which `<specific default API/component/pattern>` should I use?"
 - Ask one buffer question only after the default path is exhausted.
 - Do not invent wrappers, one-off controls, bespoke CSS, or new architecture.
+
+`./tmp/` is our gitignored pairing space; keep production, CI, release checks, and automated test fixtures independent of it.

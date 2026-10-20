@@ -10,7 +10,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { delimiter, join, resolve } from "node:path";
-import test from "node:test";
+import { tmpdir } from "node:os";
+import test, { type TestContext } from "node:test";
 import { nativeReleaseOutputFile } from "../../scripts/build/utils.ts";
 
 const nativeTestEnabled = process.env.LEGIBILITY_NATIVE_E2E === "1";
@@ -19,6 +20,29 @@ const expectBinary = ["/usr/bin/expect", "/usr/local/bin/expect", "/opt/homebrew
   existsSync,
 );
 const cleanPath = ["/usr/bin", "/bin", "/usr/sbin", "/sbin"].join(delimiter);
+
+const checkNativeSetup = (t: TestContext, withGit: boolean, path = cleanPath): void => {
+  assert.ok(expectBinary, "expect is required for the native E2E test");
+  assert.ok(existsSync(nativeBinary), "build the release binary before running native E2E");
+  const root = createFixture(t, withGit);
+  const logPath = join(root, "runs.log");
+  assertNativeFlow(root, logPath, runNativeFlow(root, logPath, path));
+};
+
+const createFixture = (t: TestContext, withGit: boolean): string => {
+  const root = mkdtempSync(join(tmpdir(), "legibility-native-"));
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  const binDirectory = join(root, "node_modules", ".bin");
+  mkdirSync(join(root, "src"), { recursive: true });
+  mkdirSync(binDirectory, { recursive: true });
+  writeFileSync(join(root, "src", "index.ts"), "export const answer = 42;\n");
+  ["eslint", "oxlint"].forEach((command) => writeFakeLinter(binDirectory, command));
+  if (withGit) {
+    const result = spawnSync("git", ["init", "--quiet", root], { encoding: "utf8" });
+    assert.equal(result.status, 0, result.stderr);
+  }
+  return root;
+};
 
 const writeFakeLinter = (directory: string, command: string): void => {
   const path = join(directory, command);
@@ -35,16 +59,65 @@ const writeFakeLinter = (directory: string, command: string): void => {
   chmodSync(path, 0o755);
 };
 
-const createFixture = (): { root: string; cleanup: () => void } => {
-  mkdirSync(join(process.cwd(), "tmp"), { recursive: true });
-  const root = mkdtempSync(join(process.cwd(), "tmp", "legibility-native-"));
-  const binDirectory = join(root, "node_modules", ".bin");
-  mkdirSync(join(root, "src"), { recursive: true });
-  mkdirSync(binDirectory, { recursive: true });
-  writeFileSync(join(root, "src", "index.ts"), "export const answer = 42;\n");
-  ["eslint", "oxlint"].forEach((command) => writeFakeLinter(binDirectory, command));
-  return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
+const createLargeInventory = (root: string): void => {
+  const ids = Array.from({ length: 1024 }, (_, index) => String(index).padStart(4, "0"));
+  const manifest = JSON.stringify({ dependencies: { oxlint: "1" } });
+  ids.forEach((id) => {
+    const name = `${id}-é漢🙂-${"p".repeat(120)}`;
+    const directory = join(root, name);
+    mkdirSync(directory);
+    writeFileSync(join(directory, "index.ts"), "");
+    writeFileSync(join(directory, "package.json"), manifest);
+  });
+  const finalDirectory = join(root, "z-final");
+  mkdirSync(finalDirectory);
+  writeFileSync(join(finalDirectory, "index.ts"), "");
+  writeFileSync(join(finalDirectory, "package.json"), '{"dependencies":{"eslint":"1"}}');
 };
+
+const assertLargeInventory = (root: string): void => {
+  const args = ["ls-files", "--others", "--exclude-standard", "-z"];
+  const result = spawnSync("git", args, { cwd: root });
+  assert.ifError(result.error);
+  assert.equal(result.status, 0, result.stderr.toString());
+  assert.ok(result.stdout.byteLength > 4 * 65536, "inventory must exceed four native chunks");
+};
+
+const assertNativeFlow = (
+  root: string,
+  logPath: string,
+  result: ReturnType<typeof runNativeFlow>,
+): void => {
+  assertNativeOutput(logPath, result);
+  assertNativeConfiguration(root);
+};
+
+const runNativeFlow = (
+  root: string,
+  logPath: string,
+  path = cleanPath,
+): ReturnType<typeof spawnSync> =>
+  spawnSync(expectBinary as string, ["-c", expectScript()], {
+    cwd: process.cwd(),
+    encoding: "utf8",
+    env: Object.assign({}, process.env, {
+      LEGIBILITY_NATIVE_E2E_BINARY: nativeBinary,
+      LEGIBILITY_NATIVE_E2E_LOG: logPath,
+      LEGIBILITY_NATIVE_E2E_ROOT: root,
+      PATH: path,
+    }),
+    timeout: 20_000,
+  });
+
+const expectScript = (): string =>
+  expectSetupPrompts()
+    .concat(
+      expectLanguagePrompt(),
+      expectLinterSelection(),
+      expectConfigurationPrompts(),
+      expectExecution(),
+    )
+    .join("\n");
 
 const expectSetupPrompts = (): string[] => [
   "set timeout 10",
@@ -56,6 +129,8 @@ const expectSetupPrompts = (): string[] => [
 
 const expectLanguagePrompt = (): string[] => [
   'expect "Which languages should Legibility check?"',
+  'send "\\033\\[A"',
+  'expect "› ■ TypeScript (typescript)"',
   'send "\\r"',
 ];
 
@@ -91,29 +166,6 @@ const expectExecution = (): string[] => [
   "exit [lindex $status 3]",
 ];
 
-const expectScript = (): string =>
-  expectSetupPrompts()
-    .concat(
-      expectLanguagePrompt(),
-      expectLinterSelection(),
-      expectConfigurationPrompts(),
-      expectExecution(),
-    )
-    .join("\n");
-
-const runNativeFlow = (root: string, logPath: string): ReturnType<typeof spawnSync> =>
-  spawnSync(expectBinary as string, ["-c", expectScript()], {
-    cwd: process.cwd(),
-    encoding: "utf8",
-    env: Object.assign({}, process.env, {
-      LEGIBILITY_NATIVE_E2E_BINARY: nativeBinary,
-      LEGIBILITY_NATIVE_E2E_LOG: logPath,
-      LEGIBILITY_NATIVE_E2E_ROOT: root,
-      PATH: cleanPath,
-    }),
-    timeout: 20_000,
-  });
-
 const assertNativeOutput = (logPath: string, result: ReturnType<typeof runNativeFlow>): void => {
   const output = (result.stdout ?? "") + "\n" + (result.stderr ?? "");
   assert.equal(result.status, 0, output);
@@ -135,20 +187,37 @@ const assertNativeConfiguration = (root: string): void => {
   assert.deepEqual(config.linters["oxlint-plugin-legibility"]?.args, ["--deny-warnings"]);
 };
 
-const assertNativeFlow = (
-  root: string,
-  logPath: string,
-  result: ReturnType<typeof runNativeFlow>,
-): void => {
-  assertNativeOutput(logPath, result);
-  assertNativeConfiguration(root);
-};
-
-test("runs the native setup flow through a real terminal", { skip: !nativeTestEnabled }, (t) => {
-  assert.ok(expectBinary, "expect is required for the native E2E test");
-  assert.ok(existsSync(nativeBinary), "build the release binary before running native E2E");
-  const fixture = createFixture();
-  t.after(fixture.cleanup);
-  const logPath = join(fixture.root, "runs.log");
-  assertNativeFlow(fixture.root, logPath, runNativeFlow(fixture.root, logPath));
+test("runs native setup in a Git project", { skip: !nativeTestEnabled }, (t) => {
+  checkNativeSetup(t, true);
 });
+
+test("runs native setup in a non-Git project", { skip: !nativeTestEnabled }, (t) => {
+  checkNativeSetup(t, false);
+});
+
+test(
+  "preserves a large native Git inventory while reading manifests",
+  { skip: !nativeTestEnabled },
+  (t) => {
+    assert.ok(expectBinary, "expect is required for the native E2E test");
+    assert.ok(existsSync(nativeBinary), "build the release binary before running native E2E");
+    const root = createFixture(t, true);
+    createLargeInventory(root);
+    assertLargeInventory(root);
+    const logPath = join(root, "runs.log");
+    const result = runNativeFlow(root, logPath);
+    assertNativeFlow(root, logPath, result);
+    const output = result.stdout?.toString() ?? "";
+    assert.match(output, /1026 files/);
+    assert.match(output, /dependency declared in .*\(\+1023 more\)/);
+    assert.match(output, /dependency declared in z-final\/package\.json/);
+  },
+);
+
+test(
+  "runs native setup with Git metadata but no Git executable",
+  { skip: !nativeTestEnabled },
+  (t) => {
+    checkNativeSetup(t, true, join(tmpdir(), "legibility-no-git"));
+  },
+);

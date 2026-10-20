@@ -118,7 +118,7 @@ legibility --dry-run
 | [`eslint-plugin-legibility`](#eslint-plugin-legibility)     | `eslint`                | JavaScript, TypeScript | JavaScript and TypeScript readability policy |
 | [`oxlint-plugin-legibility`](#oxlint-plugin-legibility)     | `oxlint`                | JavaScript, TypeScript | JavaScript and TypeScript readability policy |
 | [`go-lint-legibility`](#go-lint-legibility)                 | `go-lint-legibility`    | Go                     | Go readability policy                        |
-| [`ruff-legibility`](#ruff-legibility)                       | `ruff`                  | Python                 | Python readability policy                    |
+| [`ruff-legibility`](#ruff-legibility)                       | `ruff-legibility`       | Python                 | Python readability policy                    |
 | [`shellcheck-legibility`](#shellcheck-legibility)           | `shellcheck-legibility` | Shell                  | Shell readability policy                     |
 | [`sqlfluff-plugin-legibility`](#sqlfluff-plugin-legibility) | `sqlfluff`              | SQL                    | SQL and Jinja comment policy                 |
 
@@ -551,9 +551,9 @@ The module also supports an optional `golangci-lint` plugin build; see its [setu
 
 ### `ruff-legibility`
 
-> Command: **`ruff`** – Languages: **Python**
+> Command: **`ruff-legibility`** – Languages: **Python**
 
-Provides readability rules for [Ruff](https://github.com/yowainwright/ruff-legibility).
+Checks Python readability with [ruff-legibility](https://github.com/yowainwright/ruff-legibility), a separate tool run alongside Ruff.
 
 ---
 
@@ -587,10 +587,9 @@ Startup is already quick. Lazy loading the rule catalog is not a release target 
 
 ### Setup scan
 
-> Current: **6–14 seconds** in large directories
 > Target: **under 3 seconds** on a representative large repository
 
-Language detection currently copies a language's path array for every matched file and does not read `.gitignore` ([`recordLanguageFile`](src/cli/index.ts#L393), [`readFiles`](src/cli/index.ts#L375)). The target is linear counting, retaining only the count and a few sample paths, while respecting Git ignores and existing generated-directory exclusions.
+Setup uses an ignore-aware file inventory, fixed filename and extension lookups, bounded path samples, and up to eight concurrent manifest reads ([diagnosis](src/lib/diagnose/index.ts), [file inventory](src/lib/diagnose/utils.ts)). Git projects use Git's file inventory; non-Git projects apply local `.gitignore` rules during traversal. The earlier 6–14 second measurement predates this implementation.
 
 ### Homebrew check
 

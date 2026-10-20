@@ -8,6 +8,7 @@ import {
   STYLEGUIDE_LANGUAGE_CHOICES,
   STYLEGUIDE_LINTER_CHOICES,
   STYLEGUIDE_PREVIEW_MARK,
+  TOOL_BY_LINTER_ID,
 } from "./constants.ts";
 import {
   formatCheckboxDemo,
@@ -23,6 +24,7 @@ import type {
   LinterDefinition,
   Source,
 } from "./types.ts";
+import type { DetectedTool } from "../lib/diagnose/types.ts";
 
 const languageDescription = (language: DetectedLanguage | undefined): string => {
   if (!language) return "not detected";
@@ -100,13 +102,64 @@ export const promptForLinterInstall = async (
   return promptCheckbox("Which native linters should be installed?", choices);
 };
 
-const linterChoices = (candidates: LinterDefinition[], availableIds: Set<string>) =>
+const evidenceLabel = (kind: DetectedTool["evidence"][number]["kind"]): string => {
+  if (kind === "config") return "config found";
+  if (kind === "dependency") return "dependency declared";
+  return "script invokes";
+};
+
+const matchesLinter = (
+  tool: DetectedTool,
+  id: string,
+  command: string,
+  alias?: string,
+): boolean => {
+  const matchesId = tool.id === id;
+  const matchesCommand = tool.id === command;
+  const matchesAlias = tool.id === alias;
+  if (matchesId) return true;
+  if (matchesCommand) return true;
+  return matchesAlias;
+};
+
+const matchingLinterEvidence = (
+  id: string,
+  command: string,
+  tools: DetectedTool[],
+): DetectedTool["evidence"] => {
+  const alias = TOOL_BY_LINTER_ID[id];
+  const matchingTools = tools.filter((tool) => matchesLinter(tool, id, command, alias));
+  return matchingTools.flatMap(({ evidence }) => evidence);
+};
+
+const evidenceDescription = (evidence: DetectedTool["evidence"][number]): string => {
+  const { kind, count, paths } = evidence;
+  const suffix = count > 1 ? ` (+${count - 1} more)` : "";
+  return `${evidenceLabel(kind)} in ${paths[0]}${suffix}`;
+};
+
+const linterEvidence = (id: string, command: string, tools: DetectedTool[]): string => {
+  const evidence = matchingLinterEvidence(id, command, tools);
+  if (evidence.length === 0) return "matches detected languages";
+  const details = evidence.map(evidenceDescription);
+  const visibleDetails = details.slice(0, 2).join("; ");
+  const extraCount = details.length - 2;
+  const suffix = extraCount > 0 ? `; +${extraCount} more` : "";
+  return `${visibleDetails}${suffix}`;
+};
+
+const linterChoices = (
+  candidates: LinterDefinition[],
+  availableIds: Set<string>,
+  tools: DetectedTool[],
+) =>
   candidates.map(({ id, command, description }) => {
     const isInstalled = availableIds.has(id);
+    const evidence = linterEvidence(id, command, tools);
     return {
       name: id,
       value: id,
-      description: `${description} · ${command}`,
+      description: `${description} · ${command} · ${evidence}`,
       checked: isInstalled,
       disabled: linterDisabledState(isInstalled),
     };
@@ -116,12 +169,13 @@ export const promptForLinters = (
   languages: string[],
   root: string,
   isAvailable: CommandAvailability,
+  tools: DetectedTool[] = [],
 ): Promise<string[] | undefined> => {
   const candidates = candidateLinters(languages);
   const available = candidates.filter(({ command }) => isAvailable(command, root));
   if (available.length === 0) return Promise.resolve(undefined);
   const availableIds = new Set(available.map(({ id }) => id));
-  const choices = linterChoices(candidates, availableIds);
+  const choices = linterChoices(candidates, availableIds, tools);
   return promptCheckbox("Which linters should run?", choices, true);
 };
 

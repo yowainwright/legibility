@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import test from "node:test";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 import {
   detectLanguages,
   homebrewLinterUpdates,
@@ -12,12 +13,6 @@ import { CONFIG_LINTER_DEFINITIONS, STYLEGUIDE_TOUR_CHOICES } from "../../src/cl
 import { promptCheckbox, setPromptLine } from "../../src/cli/prompts/index.ts";
 import { promptForLinterInstall, promptForLinters } from "../../src/cli/utils.ts";
 import type { JsonObject } from "../../src/cli/types.ts";
-
-const temporaryDirectory = (): string => {
-  const directory = join(process.cwd(), "tmp");
-  mkdirSync(directory, { recursive: true });
-  return directory;
-};
 
 const homebrewPayload = {
   formulae: [
@@ -213,7 +208,7 @@ test("filters linter choices by language and availability", async (t) => {
 });
 
 test("detects languages in stable order and ignores generated directories", (t) => {
-  const root = mkdtempSync(join(temporaryDirectory(), "legibility-detect-"));
+  const root = mkdtempSync(join(tmpdir(), "legibility-detect-"));
   t.after(() => rmSync(root, { recursive: true, force: true }));
   mkdirSync(join(root, "src"), { recursive: true });
   mkdirSync(join(root, "dist"), { recursive: true });
