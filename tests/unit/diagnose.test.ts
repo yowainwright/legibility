@@ -199,9 +199,13 @@ test("reports Git inventory failures instead of returning an empty diagnosis", a
 test("falls back to directory inspection when Git is not installed", async (t) => {
   const root = createFixture(t, true);
   writeFiles(root, { ".gitignore": "ignored/\n", "index.ts": "", "ignored/app.py": "" });
-  const originalEnvironment = Object.assign({}, process.env);
+  const originalPath = process.env.PATH;
   t.after(() => {
-    process.env = originalEnvironment;
+    if (originalPath === undefined) {
+      delete process.env.PATH;
+      return;
+    }
+    process.env.PATH = originalPath;
   });
   process.env.PATH = join(root, "missing-bin");
   const result = await diagnose(root);
@@ -275,6 +279,7 @@ const createFixture = (t: TestContext, withGit = false): string => {
 
 const git = (root: string, ...args: string[]): void => {
   const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+  assert.ifError(result.error);
   assert.equal(result.status, 0, result.stderr);
 };
 
