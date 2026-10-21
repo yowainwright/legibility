@@ -31,32 +31,6 @@ const homebrewPayload = {
   ],
 };
 
-const parseLinterOptions = () =>
-  parseOptions([
-    "--linter",
-    "fs-lint",
-    "--linter",
-    "src-lint",
-    "--dry-run",
-    "--",
-    "--format",
-    "json",
-  ]);
-
-const parseRuleOptions = () => ({
-  search: parseOptions(["rules", "--search", "function length"]),
-  detail: parseOptions([
-    "rule",
-    "LEG038",
-    "--language",
-    "javascript",
-    "--plugin",
-    "oxlint",
-    "--enable",
-    "--dry-run",
-  ]),
-});
-
 const expectedHomebrewOutdated = [
   {
     name: "fs-lint",
@@ -82,6 +56,32 @@ const expectedHomebrewLinterUpdates = [
     formula: "fs-lint",
   },
 ];
+
+const parseLinterOptions = () =>
+  parseOptions([
+    "--linter",
+    "fs-lint",
+    "--linter",
+    "src-lint",
+    "--dry-run",
+    "--",
+    "--format",
+    "json",
+  ]);
+
+const parseRuleOptions = () => ({
+  search: parseOptions(["rules", "--search", "function length"]),
+  detail: parseOptions([
+    "rule",
+    "LEG038",
+    "--language",
+    "javascript",
+    "--plugin",
+    "oxlint",
+    "--enable",
+    "--dry-run",
+  ]),
+});
 
 test("parses CLI options separately from native linter arguments", () => {
   assert.deepEqual(parseLinterOptions(), {

@@ -7,25 +7,16 @@ PROJECT_ROOT=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 cd "$PROJECT_ROOT"
 HOOKS_DIR=${HOOKS_DIR:-$(git -C "$PROJECT_ROOT" rev-parse --git-path hooks 2>/dev/null || true)}
 
-log() {
-  printf '%s\n' "$1"
-}
-
-skip_existing() {
-  path="$1"
-  label="$2"
-
-  if [ -f "$path" ]; then
-    log "$label already exists, skipping..."
-    return 0
+main() {
+  if [ "${CI:-}" = "true" ] || [ "${CI:-}" = "1" ]; then
+    log "CI environment detected, skipping git hook installation"
+    return
   fi
 
-  if [ -L "$path" ]; then
-    log "$label symlink does not point to a file, replacing..."
-    rm "$path"
-  fi
-
-  return 1
+  ensure_git_repo
+  log "Setting up git hooks..."
+  install_git_hooks
+  log "Setup complete!"
 }
 
 ensure_git_repo() {
@@ -35,6 +26,13 @@ ensure_git_repo() {
 
   log "Skipping setup outside a git repository"
   exit 0
+}
+
+install_git_hooks() {
+  mkdir -p "$HOOKS_DIR"
+  install_pre_commit_hook
+  install_commit_msg_hook
+  install_post_merge_hook
 }
 
 install_pre_commit_hook() {
@@ -110,23 +108,25 @@ EOF
   log "Installed post-merge hook"
 }
 
-install_git_hooks() {
-  mkdir -p "$HOOKS_DIR"
-  install_pre_commit_hook
-  install_commit_msg_hook
-  install_post_merge_hook
-}
+skip_existing() {
+  path="$1"
+  label="$2"
 
-main() {
-  if [ "${CI:-}" = "true" ] || [ "${CI:-}" = "1" ]; then
-    log "CI environment detected, skipping git hook installation"
-    return
+  if [ -f "$path" ]; then
+    log "$label already exists, skipping..."
+    return 0
   fi
 
-  ensure_git_repo
-  log "Setting up git hooks..."
-  install_git_hooks
-  log "Setup complete!"
+  if [ -L "$path" ]; then
+    log "$label symlink does not point to a file, replacing..."
+    rm "$path"
+  fi
+
+  return 1
+}
+
+log() {
+  printf '%s\n' "$1"
 }
 
 main "$@"

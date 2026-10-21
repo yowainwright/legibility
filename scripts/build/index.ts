@@ -25,8 +25,27 @@ import { nativeReleaseOutputFile, runCommand } from "./utils.ts";
 
 const log = createLogger({ file: BUILD_SCRIPT_LABEL, isLogging: true });
 
-const runBuildCommand = (command: string, args: readonly string[]): void =>
-  runCommand(command, args, log);
+const buildBinary = async (): Promise<void> => {
+  const buildArguments = new Set(process.argv.slice(2));
+  generateRuleCatalog();
+  writeCliEntry();
+  await bundleCli();
+  if (buildArguments.has(CLI_ONLY_FLAG)) return;
+  const isReleaseBuild = buildArguments.has(NATIVE_RELEASE_FLAG);
+  const outputFile = isReleaseBuild ? nativeReleaseOutputFile() : BIN_OUTPUT_FILE;
+  writeBinarySources();
+  await bundleRuntime();
+  compileBinary(outputFile);
+  printBinarySize(outputFile);
+};
+
+const writeBinarySources = (): void => {
+  mkdirSync(BIN_RUNTIME_DIR, { recursive: true });
+  writeFileSync(BIN_ENTRY_FILE, renderBinaryEntry());
+  writeFileSync(BIN_RUNTIME_ENTRY_FILE, renderRuntimeEntry());
+  writeFileSync(BIN_RUNTIME_PACKAGE_FILE, renderRuntimePackage());
+  writeFileSync(BIN_RUNTIME_TYPES_FILE, renderRuntimeTypes());
+};
 
 const renderRuntimeEntry = (): string =>
   [
@@ -37,25 +56,42 @@ const renderRuntimeEntry = (): string =>
     "",
   ].join("\n");
 
-const renderCliEntry = (): string =>
+const renderRuntimePackage = (): string => {
+  const manifest: RuntimePackageManifest = {
+    main: "index.js",
+    name: RUNTIME_PACKAGE_NAME,
+    type: "commonjs",
+    types: "index.d.ts",
+    version: packageJson.version,
+  };
+  return JSON.stringify(manifest);
+};
+
+const renderRuntimeTypes = (): string =>
   [
-    'import { run } from "../../src/cli/index.ts";',
-    "",
-    "const exitCode = await run(process.argv.slice(2));",
-    "process.exit(exitCode);",
+    "export type PromptLine = (message: string) => Promise<string>;",
+    "export type PromptKeyReader = () => Promise<string>;",
+    "export type CommandRunner = (command: string, args: string[], root: string) => Promise<number>;",
+    "export declare function setGitOutputReader(reader: ((root: string, args: string[], consume: (chunk: Uint8Array) => Promise<void>, registerCancel: (cancel: () => void) => void) => Promise<number>) | undefined): void;",
+    "export declare function runWithPrompt(args: string[], promptLine: PromptLine, commandRunner?: CommandRunner, promptKey?: PromptKeyReader): Promise<number>;",
     "",
   ].join("\n");
 
-const renderPromptLine = (): string =>
+const renderBinaryEntry = (): string =>
   [
-    "const promptLine = (message: string): Promise<string> =>",
-    "  new Promise((resolve) => {",
-    "    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });",
-    "    rl.question(message, (answer) => {",
-    "      rl.close();",
-    "      resolve(answer);",
-    "    });",
-    "  });",
+    'import { runWithPrompt, setGitOutputReader } from "legibility-runtime";',
+    'import { existsSync } from "node:fs";',
+    'import { spawn, type ChildProcess } from "node:child_process";',
+    'import * as readline from "node:readline";',
+    'import { join } from "node:path";',
+    "",
+    renderPromptLine(),
+    renderPromptKey(),
+    renderCommandRunner(),
+    renderGitOutputPipe(),
+    renderGitOutputReader(),
+    renderBinaryMain(),
+    "",
   ].join("\n");
 
 const renderPromptKey = (): string =>
@@ -140,56 +176,31 @@ const renderBinaryMain = (): string =>
     "void main();",
   ].join("\n");
 
-const renderBinaryEntry = (): string =>
+const renderPromptLine = (): string =>
   [
-    'import { runWithPrompt, setGitOutputReader } from "legibility-runtime";',
-    'import { existsSync } from "node:fs";',
-    'import { spawn, type ChildProcess } from "node:child_process";',
-    'import * as readline from "node:readline";',
-    'import { join } from "node:path";',
-    "",
-    renderPromptLine(),
-    renderPromptKey(),
-    renderCommandRunner(),
-    renderGitOutputPipe(),
-    renderGitOutputReader(),
-    renderBinaryMain(),
-    "",
+    "const promptLine = (message: string): Promise<string> =>",
+    "  new Promise((resolve) => {",
+    "    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });",
+    "    rl.question(message, (answer) => {",
+    "      rl.close();",
+    "      resolve(answer);",
+    "    });",
+    "  });",
   ].join("\n");
-
-const renderRuntimePackage = (): string => {
-  const manifest: RuntimePackageManifest = {
-    main: "index.js",
-    name: RUNTIME_PACKAGE_NAME,
-    type: "commonjs",
-    types: "index.d.ts",
-    version: packageJson.version,
-  };
-  return JSON.stringify(manifest);
-};
-
-const renderRuntimeTypes = (): string =>
-  [
-    "export type PromptLine = (message: string) => Promise<string>;",
-    "export type PromptKeyReader = () => Promise<string>;",
-    "export type CommandRunner = (command: string, args: string[], root: string) => Promise<number>;",
-    "export declare function setGitOutputReader(reader: ((root: string, args: string[], consume: (chunk: Uint8Array) => Promise<void>, registerCancel: (cancel: () => void) => void) => Promise<number>) | undefined): void;",
-    "export declare function runWithPrompt(args: string[], promptLine: PromptLine, commandRunner?: CommandRunner, promptKey?: PromptKeyReader): Promise<number>;",
-    "",
-  ].join("\n");
-
-const writeBinarySources = (): void => {
-  mkdirSync(BIN_RUNTIME_DIR, { recursive: true });
-  writeFileSync(BIN_ENTRY_FILE, renderBinaryEntry());
-  writeFileSync(BIN_RUNTIME_ENTRY_FILE, renderRuntimeEntry());
-  writeFileSync(BIN_RUNTIME_PACKAGE_FILE, renderRuntimePackage());
-  writeFileSync(BIN_RUNTIME_TYPES_FILE, renderRuntimeTypes());
-};
 
 const writeCliEntry = (): void => {
   mkdirSync(CLI_OUTPUT_DIR, { recursive: true });
   writeFileSync(CLI_SOURCE_FILE, renderCliEntry());
 };
+
+const renderCliEntry = (): string =>
+  [
+    'import { run } from "../../src/cli/index.ts";',
+    "",
+    "const exitCode = await run(process.argv.slice(2));",
+    "process.exit(exitCode);",
+    "",
+  ].join("\n");
 
 const bundleCli = async (): Promise<void> => {
   const bundle = await rolldown({
@@ -237,19 +248,8 @@ const printBinarySize = (outputFile: string): void => {
 const generateRuleCatalog = (): void =>
   runBuildCommand(process.execPath, ["--experimental-strip-types", "scripts/rules/index.ts"]);
 
-const buildBinary = async (): Promise<void> => {
-  const buildArguments = new Set(process.argv.slice(2));
-  generateRuleCatalog();
-  writeCliEntry();
-  await bundleCli();
-  if (buildArguments.has(CLI_ONLY_FLAG)) return;
-  const isReleaseBuild = buildArguments.has(NATIVE_RELEASE_FLAG);
-  const outputFile = isReleaseBuild ? nativeReleaseOutputFile() : BIN_OUTPUT_FILE;
-  writeBinarySources();
-  await bundleRuntime();
-  compileBinary(outputFile);
-  printBinarySize(outputFile);
-};
+const runBuildCommand = (command: string, args: readonly string[]): void =>
+  runCommand(command, args, log);
 
 try {
   await buildBinary();

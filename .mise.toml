@@ -1,6 +1,21 @@
 [tools]
+nub = { version = "0.7.5", allow_builds = ["@nubjs/nub"] }
 shellcheck = "0.11.0"
 shfmt = "3.13.1"
+
+[tools."github:yowainwright/fs-lint"]
+version = "0.3.0"
+asset_pattern = 'fs-lint-{{ os(macos="darwin") }}-{{ arch(x64="amd64") }}'
+bin = "fs-lint"
+
+[tools."github:yowainwright/src-lint"]
+version = "0.1.2"
+asset_pattern = 'src-lint-{{ os(macos="darwin") }}-{{ arch(x64="amd64") }}'
+bin = "src-lint"
+
+[tools."github:yowainwright/struct-lint"]
+version = "0.1.2"
+asset_pattern = 'struct-lint-{{ os(macos="darwin") }}-{{ arch(x64="amd64") }}.tar.gz'
 
 [tools."github:yowainwright/shellcheck_legibility"]
 version = "0.2.1"
