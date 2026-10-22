@@ -2,18 +2,18 @@
 
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue)](./LICENSE)
 
-Legibility is a group of CLI tools for helping humans and agents write more readable code.
-All plugins and linters in the Legibility stack can be used standalone or via this CLI.
+Legibility configures and runs readability checks for humans and agents.
+Each linter and plugin can also run on its own.
 
 ---
 
 ## Preface
 
-Over the last year, code has largely shifted from human-written to AI-written. Agentic skills help enforce clear patterns, but this can be further improved with small linters and plugin tools to improve code legibility. The goal of these tools is to provide hands-off, rules that make code easier to read, write, and compile thousands of lines a day.
+As agents write more code, skills help enforce clear patterns. Linters and plugins check those patterns automatically. The goal is to make code easier to read, write, and compile, even when working with thousands of lines a day.
 
 ---
 
-This README documents the initial CLI contract for the Legibility CLI, which helps set up legibility tools as a group of linters and plugins, or, so each tool on its own.
+This README documents the initial CLI contract.
 
 ---
 
@@ -25,7 +25,7 @@ For stable releases, install with Homebrew:
 brew install yowainwright/tap/legibility
 ```
 
-Or, via a JS distro. For example:
+Or install the npm package:
 
 ```sh
 npm install legibility -g
@@ -39,7 +39,7 @@ Homebrew installs a native binary and does not require Node.js. The npm package 
 
 From a project directory, start guided setup or run the discovered configuration.
 
-In a terminal, setup detects project languages, offers supported linters, previews selected commands, and asks before saving `legibility.json` or running them. Without a terminal, provide an existing configuration.
+Setup detects project languages, offers supported linters, previews commands, and asks before saving `legibility.json` or running checks. It requires a terminal; non-interactive runs need an existing configuration.
 
 Hosted linters like ESLint and Oxlint stay project-managed dependencies. Setup can use Homebrew to install Legibility's native linters.
 
@@ -57,7 +57,7 @@ legibility
 
 **2. Generated output**
 
-After selecting TypeScript and an available Oxlint integration and approving the save, Legibility writes this file:
+Select TypeScript and an available Oxlint integration, then approve the save. Legibility writes:
 
 ```text
 my-project/
@@ -135,7 +135,7 @@ The examples below assume `legibility` is on `PATH`.
 
 > Type: **`command`**
 
-Runs enabled linters from the discovered project configuration. If no configuration is found in a terminal, Legibility starts guided setup, previews the selected commands, and asks before saving `legibility.json` or running a linter. Without a terminal, provide a configuration explicitly.
+Runs the project's enabled linters. With no configuration, interactive runs start guided setup. Setup previews commands and asks before saving `legibility.json` or running a linter. Non-interactive runs require an existing configuration.
 
 ```sh
 legibility
@@ -411,7 +411,7 @@ Identifies the configuration format version.
 > Type: **`string[]` or an object keyed by language ID**
 > Optional
 
-Stores language IDs selected during guided setup. Setup writes a string array when there are no per-language settings. The keyed object form is reserved for language-specific settings; none currently affect CLI behavior. The CLI uses configured linter IDs to decide what runs.
+Records the languages selected during setup. Setup writes a string array when there are no per-language settings. The object form reserves space for those settings; none currently affect execution. Configured linter IDs determine which tools run.
 
 ### `linters`
 
@@ -439,7 +439,7 @@ Passes these native arguments to the linter unchanged.
 > Type: **`object`**
 > Default: **`{"enabled":true,"manager":"brew","prompt":true}`**
 
-Controls Homebrew-backed linter updates. See the fields below for current behavior.
+Controls Homebrew update checks and prompts.
 
 ### `updates.enabled`
 
@@ -514,7 +514,7 @@ Checks declaration and function order.
 
 ## Plugins
 
-These plugin integrations are registered by the CLI. Configure each ID under `linters`; the command listed is the host linter Legibility invokes.
+Configure these integrations under `linters`. Each entry lists the command Legibility invokes.
 
 ### `eslint-plugin-legibility`
 
@@ -577,7 +577,7 @@ Rule mappings and language coverage are in the [shared rule catalog](docs/rules.
 
 ## Performance targets
 
-Measurements below are from one local environment – not performance guarantees. The configurable behavior in this section is agreed work for a later CLI iteration and is not in the current API.
+Measurements are from one local environment and are not guarantees. Targets describe planned work for a later CLI iteration.
 
 ### CLI startup
 
@@ -596,14 +596,14 @@ Setup uses an ignore-aware file inventory, fixed filename and extension lookups,
 > Current: **5.5 seconds** before linting in the measured interactive run
 > Target: **check at most once a week by default**
 
-The current check runs before linting on eligible interactive runs ([`checkForUpdates`](src/cli/index.ts#L593)). The weekly interval should be configurable in project config and via a CLI option. No interval setting or CLI option exists yet; the current `updates` config controls enablement, manager, and prompting only.
+Eligible interactive runs check for updates before linting ([`checkForUpdates`](src/cli/index.ts#L593)). The planned weekly interval will be configurable in project config and via a CLI option. No interval setting or option exists yet; `updates` currently controls enablement, manager, and prompting.
 
 ### Linter concurrency
 
 > Current: **sequential**
 > Target: **a small bounded parallel limit by default**
 
-The current run waits for each linter before starting the next ([`runLinters`](src/cli/index.ts#L811)). The limit should be adjustable in project config and via a CLI option. No concurrency setting exists yet, and the numeric default is still undecided.
+Linters run one at a time ([`runLinters`](src/cli/index.ts#L811)). The planned parallel limit will be adjustable in project config and via a CLI option. Concurrency is not configurable yet, and the default limit is undecided.
 
 ### Run feedback
 
