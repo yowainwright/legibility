@@ -21,4 +21,4 @@ asset_pattern = 'struct-lint-{{ os(macos="darwin") }}-{{ arch(x64="amd64") }}.ta
 version = "0.2.1"
 asset_pattern = "shellcheck-legibility-{{ version }}.tar.gz"
 bin_path = "bin"
-checksum = "sha256:137942db1000e72ce8e8f2fbe8c10e334c70dc554ad2ef08aa49f0778f0302c0"
+checksum = "sha256:137942db1000e72ce8f8e2fbe8c10e334c70dc554ad2ef08aa49f0778f0302c0"
