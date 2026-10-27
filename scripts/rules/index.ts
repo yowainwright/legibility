@@ -30,60 +30,10 @@ import type {
   RuleVariantRowRequest,
 } from "./types.ts";
 
-const childNodes = (node: MarkdownNode): MarkdownNode[] => node.children ?? [];
-
-const cellAt = (cells: MarkdownNode[], index: number): MarkdownNode => {
-  const cell = cells[index];
-  if (cell !== undefined) return cell;
-  return { type: "text" };
-};
-
-const nodeText = (node: MarkdownNode): string => {
-  if (node.value !== undefined) return node.value;
-  const separator = node.type === "tableRow" ? " " : "";
-  return childNodes(node).map(nodeText).join(separator);
-};
-
-const inlineCodeValues = (node: MarkdownNode): string[] => {
-  const hasCodeValue = node.type === "inlineCode" && node.value !== undefined;
-  if (hasCodeValue) return [node.value ?? ""];
-  return childNodes(node).flatMap(inlineCodeValues);
-};
-
-const linkLabels = (node: MarkdownNode): string[] => {
-  if (node.type === "link") return [nodeText(node)];
-  return childNodes(node).flatMap(linkLabels);
-};
-
-const linkUrls = (node: MarkdownNode): string[] => {
-  const hasLinkUrl = node.type === "link" && node.url !== undefined;
-  if (hasLinkUrl) return [node.url ?? ""];
-  return childNodes(node).flatMap(linkUrls);
-};
-
 const htmlAnchors = (value: string): string[] =>
   Array.from(value.matchAll(HTML_ANCHOR_PATTERN))
     .map((match) => match[1])
     .filter((anchor): anchor is string => anchor !== undefined);
-
-const visitNodes = (node: MarkdownNode, visit: (node: MarkdownNode) => void): void => {
-  visit(node);
-  childNodes(node).forEach((child) => visitNodes(child, visit));
-};
-
-const parseDocument = (source: string): MarkdownNode =>
-  unified().use(remarkParse).use(remarkGfm).parse(source) as unknown as MarkdownNode;
-
-const isHeading = (node: MarkdownNode): boolean => node.type === "heading";
-
-const headingIndex = (nodes: MarkdownNode[], depth: number, title: string): number =>
-  nodes.findIndex((node) => {
-    const matchesType = isHeading(node);
-    const matchesDepth = node.depth === depth;
-    const matchesTitle = nodeText(node) === title;
-    const matchesHeadingShape = matchesType && matchesDepth;
-    return matchesHeadingShape && matchesTitle;
-  });
 
 const isSectionBoundary = (
   node: MarkdownNode,
@@ -99,17 +49,7 @@ const isSectionBoundary = (
   return endsAtBoundary;
 };
 
-const sectionAfter = (nodes: MarkdownNode[], start: number, depth: number): MarkdownNode[] => {
-  const end = nodes.findIndex((node, index) => isSectionBoundary(node, index, start, depth));
-  if (end < 0) return nodes.slice(start + 1);
-  return nodes.slice(start + 1, end);
-};
-
-const requiredTable = (nodes: MarkdownNode[], section: string): MarkdownNode => {
-  const table = nodes.find((node) => node.type === "table");
-  if (table !== undefined) return table;
-  throw new Error(`missing table in ${section}`);
-};
+const isHeading = (node: MarkdownNode): boolean => node.type === "heading";
 
 const rowIds = (table: MarkdownNode): string[] =>
   childNodes(table)
@@ -119,11 +59,6 @@ const rowIds = (table: MarkdownNode): string[] =>
       if (firstCell === undefined) return [];
       return nodeText(firstCell).match(RULE_ID_PATTERN) ?? [];
     });
-
-const duplicates = (values: string[]): string[] => {
-  const sorted = values.toSorted();
-  return sorted.filter((value, index) => value === sorted[index - 1]);
-};
 
 const ruleSummaryFromRow = (row: MarkdownNode): RuleSummary => {
   const cells = childNodes(row);
@@ -142,27 +77,6 @@ const ruleSummaryFromRow = (row: MarkdownNode): RuleSummary => {
   return { id, name, description, tags, languages };
 };
 
-const assertUniqueRuleIds = (rules: RuleSummary[]): void => {
-  const ids = rules.map(({ id }) => id);
-  const repeatedIds = duplicates(ids);
-  const hasIds = ids.length > 0;
-  const hasRepeatedIds = repeatedIds.length > 0;
-  const hasInvalidIds = !hasIds || hasRepeatedIds;
-  if (hasInvalidIds) {
-    throw new Error(`invalid All rules IDs: ${repeatedIds.join(", ") || "none found"}`);
-  }
-};
-
-const requiredRules = (nodes: MarkdownNode[]): RuleSummary[] => {
-  const sectionIndex = headingIndex(nodes, 2, "All rules");
-  if (sectionIndex < 0) throw new Error("missing All rules section");
-  const section = sectionAfter(nodes, sectionIndex, 2);
-  const table = requiredTable(section, "All rules");
-  const rules = childNodes(table).slice(1).map(ruleSummaryFromRow);
-  assertUniqueRuleIds(rules);
-  return rules;
-};
-
 const topicProblems = (rule: RuleSummary, allowedTopics: Set<string>): string[] => {
   const invalidTags = rule.tags
     .filter((tag) => !allowedTopics.has(tag))
@@ -170,42 +84,6 @@ const topicProblems = (rule: RuleSummary, allowedTopics: Set<string>): string[] 
   const repeatedTags = duplicates(rule.tags).map((tag) => `${rule.id}: ${tag}`);
   const missingTags = rule.tags.length === 0 ? [rule.id] : [];
   return invalidTags.concat(repeatedTags, missingTags);
-};
-
-const validateTopics = (rules: RuleSummary[]): void => {
-  const allowedTopics = new Set<string>(TOPIC_TAGS);
-  const invalidValues = rules.flatMap((rule) => topicProblems(rule, allowedTopics));
-  if (invalidValues.length > 0) {
-    throw new Error(`invalid topic tags: ${invalidValues.join(", ")}`);
-  }
-};
-
-const coverageSections = (
-  section: MarkdownNode[],
-): Array<{ end: number; heading: MarkdownNode; index: number }> => {
-  const headings = headingSections(section, 3);
-  const sections = headings.filter(({ heading }) => nodeText(heading).endsWith(" coverage"));
-  if (sections.length === 0) throw new Error("missing language coverage tables");
-  return sections;
-};
-
-const headingSections = (
-  section: MarkdownNode[],
-  depth: number,
-): Array<{ end: number; heading: MarkdownNode; index: number }> => {
-  const headings = section
-    .map((heading, index) => ({ heading, index }))
-    .filter(({ heading }) => heading.type === "heading" && heading.depth === depth);
-  return headings.map((entry, index) => {
-    const nextHeading = headings[index + 1];
-    if (nextHeading === undefined) return Object.assign({}, entry, { end: section.length });
-    return Object.assign({}, entry, { end: nextHeading.index });
-  });
-};
-
-const coverageProblem = (label: string, ids: string[]): string => {
-  if (ids.length === 0) return "";
-  return `${label} ${ids.join(", ")}`;
 };
 
 const assertCoverage = (name: string, ids: string[], ruleIds: string[]): void => {
@@ -222,20 +100,9 @@ const assertCoverage = (name: string, ids: string[], ruleIds: string[]): void =>
   if (problems.length > 0) throw new Error(`${name} coverage: ${problems.join("; ")}`);
 };
 
-const validateCoverage = (nodes: MarkdownNode[], ruleIds: string[]): void => {
-  const sectionIndex = headingIndex(nodes, 2, "Coverage by language");
-  const section = sectionAfter(nodes, sectionIndex, 2);
-  coverageSections(section).forEach(({ heading, index, end }) => {
-    const contents = section.slice(index + 1, end);
-    const headingName = nodeText(heading);
-    const table = requiredTable(contents, headingName);
-    assertCoverage(headingName, rowIds(table), ruleIds);
-  });
-};
-
-const markdownNodes = function* (node: MarkdownNode): Generator<MarkdownNode> {
-  yield node;
-  for (const child of childNodes(node)) yield* markdownNodes(child);
+const coverageProblem = (label: string, ids: string[]): string => {
+  if (ids.length === 0) return "";
+  return `${label} ${ids.join(", ")}`;
 };
 
 const isLinkNode = (node: MarkdownNode): node is LinkNode =>
@@ -252,61 +119,6 @@ const isLinkDefinition = (node: MarkdownNode): node is LinkDefinitionNode => {
 const isLinkReference = (node: MarkdownNode): node is LinkReferenceNode =>
   node.type === "linkReference" && node.identifier !== undefined;
 
-const linkAnchorIds = (nodesByType: Map<string, MarkdownNode[]>): Set<string> => {
-  const slugger = new GithubSlugger();
-  const headingNodes = nodesByType.get("heading") ?? [];
-  const headingAnchors = headingNodes.map((node) => slugger.slug(nodeText(node)));
-  const htmlNodes = nodesByType.get("html") ?? [];
-  const htmlValues = htmlNodes.map(({ value }) => value ?? "");
-  const htmlAnchorIds = htmlValues.flatMap(htmlAnchors);
-  return new Set(headingAnchors.concat(htmlAnchorIds));
-};
-
-const localLinkTargets = (nodesByType: Map<string, MarkdownNode[]>): string[] => {
-  const linkNodes = nodesByType.get("link") ?? [];
-  const definitionNodes = nodesByType.get("definition") ?? [];
-  const referenceNodes = nodesByType.get("linkReference") ?? [];
-  const links = linkNodes.filter(isLinkNode).map(({ url }) => url);
-  const definitions = new Map<string, string>(
-    definitionNodes
-      .filter(isLinkDefinition)
-      .map(({ identifier, url }) => [identifier.toLowerCase(), url] as const),
-  );
-  const references = referenceNodes
-    .filter(isLinkReference)
-    .map(({ identifier }) => identifier.toLowerCase());
-  const referenceLinks = references
-    .map((id) => definitions.get(id))
-    .filter((url): url is string => url !== undefined);
-  return links.concat(referenceLinks).filter((url) => url.startsWith("#"));
-};
-
-const validateLinks = (document: MarkdownNode): void => {
-  const nodes = Array.from(markdownNodes(document));
-  const nodesByType = Map.groupBy(nodes, ({ type }) => type);
-  const anchors = linkAnchorIds(nodesByType);
-  const localLinks = localLinkTargets(nodesByType);
-  const fragments = localLinks.map((url) => decodeURIComponent(url.slice(1)));
-  const uniqueFragments = Array.from(new Set(fragments));
-  const missingLinks = uniqueFragments.filter((fragment) => !anchors.has(fragment));
-  if (missingLinks.length > 0) throw new Error(`broken local links: ${missingLinks.join(", ")}`);
-};
-
-const appendSearchText = (index: RuleTextIndex, ruleId: string, text: string): void => {
-  const parts = index.get(ruleId);
-  if (parts === undefined) return;
-  parts.add(text);
-};
-
-const indexSearchableBlocks = (index: RuleTextIndex, document: MarkdownNode): void => {
-  visitNodes(document, (node) => {
-    if (!SEARCHABLE_BLOCK_TYPES.has(node.type)) return;
-    const text = nodeText(node).trim();
-    const ruleIds = text.match(RULE_ID_PATTERN) ?? [];
-    ruleIds.forEach((ruleId) => appendSearchText(index, ruleId, text));
-  });
-};
-
 const indexRuleDetail = (
   index: RuleTextIndex,
   details: MarkdownNode[],
@@ -318,15 +130,10 @@ const indexRuleDetail = (
   appendSearchText(index, ruleId, text);
 };
 
-const indexRuleDetails = (index: RuleTextIndex, document: MarkdownNode): void => {
-  const documentNodes = childNodes(document);
-  const detailsIndex = headingIndex(documentNodes, 2, "Rule details");
-  if (detailsIndex < 0) throw new Error("missing Rule details section");
-  const details = sectionAfter(documentNodes, detailsIndex, 2);
-  const ruleSections = headingSections(details, 3).filter(({ heading }) =>
-    /^LEG\d{3}\b/.test(nodeText(heading)),
-  );
-  ruleSections.forEach((section) => indexRuleDetail(index, details, section));
+const appendSearchText = (index: RuleTextIndex, ruleId: string, text: string): void => {
+  const parts = index.get(ruleId);
+  if (parts === undefined) return;
+  parts.add(text);
 };
 
 const searchRecord = (
@@ -343,28 +150,24 @@ const searchRecord = (
   });
 };
 
-const buildSearchIndex = (document: MarkdownNode, rules: RuleSummary[]): RuleSearchRecord[] => {
-  const index: RuleTextIndex = new Map(rules.map(({ id }) => [id, new Set<string>()]));
-  indexSearchableBlocks(index, document);
-  indexRuleDetails(index, document);
-  const variants = buildRuleVariants(document);
-  return rules.map((rule) => searchRecord(rule, index, variants));
-};
-
-const parseConfiguration = (section: MarkdownNode[], nativeRule: string): unknown => {
-  const code = section.find((node) => node.type === "code" && node.lang === "json");
-  if (code?.value === undefined) return undefined;
-  const source = code.value.trim();
-  const json = source.startsWith("{") ? source : `{${source}}`;
-  const configuration = JSON.parse(json) as Record<string, unknown>;
-  const rules = configuration.rules;
-  const hasTopLevelRule = Object.hasOwn(configuration, nativeRule);
-  if (hasTopLevelRule) return configuration[nativeRule];
-  const hasObjectType = typeof rules === "object";
-  const isArray = Array.isArray(rules);
-  const isRulesObject = hasObjectType && rules !== null && !isArray;
-  if (!isRulesObject) return undefined;
-  return (rules as Record<string, unknown>)[nativeRule];
+const parseRuleVariantRow = (request: RuleVariantRowRequest): RuleVariant => {
+  const { contentByHeading, coverageByLanguage, ruleId, row } = request;
+  const cells = childNodes(row);
+  const languageLabel = nodeText(cellAt(cells, 0));
+  const { nativeRule, plugin } = nativeRuleMapping(cellAt(cells, 1));
+  const languages = languageLabel.split(/\s*\/\s*/u);
+  const coverage = coverageForLanguages(languages, coverageByLanguage, ruleId);
+  const content = contentByHeading.get(`${languageLabel} — ${plugin}`) ?? [];
+  const variant: RuleVariant = {
+    anchor: ruleVariantAnchor(cells),
+    coverage,
+    defaultState: defaultRuleState(content),
+    languages,
+    nativeRule,
+    plugin,
+    settings: nodeText(cellAt(cells, 4)),
+  };
+  return withRecommendedSettings(variant, content, nativeRule);
 };
 
 const defaultRuleState = (section: MarkdownNode[]): RuleVariant["defaultState"] => {
@@ -395,10 +198,27 @@ const nativeRuleMapping = (mapping: MarkdownNode): Pick<RuleVariant, "nativeRule
   return { nativeRule, plugin };
 };
 
+const inlineCodeValues = (node: MarkdownNode): string[] => {
+  const hasCodeValue = node.type === "inlineCode" && node.value !== undefined;
+  if (hasCodeValue) return [node.value ?? ""];
+  return childNodes(node).flatMap(inlineCodeValues);
+};
+
+const linkLabels = (node: MarkdownNode): string[] => {
+  if (node.type === "link") return [nodeText(node)];
+  return childNodes(node).flatMap(linkLabels);
+};
+
 const ruleVariantAnchor = (cells: MarkdownNode[]): string =>
   linkUrls(cellAt(cells, 3))
     .find((url) => url.startsWith("#"))
     ?.slice(1) ?? "";
+
+const linkUrls = (node: MarkdownNode): string[] => {
+  const hasLinkUrl = node.type === "link" && node.url !== undefined;
+  if (hasLinkUrl) return [node.url ?? ""];
+  return childNodes(node).flatMap(linkUrls);
+};
 
 const withRecommendedSettings = (
   variant: RuleVariant,
@@ -408,6 +228,22 @@ const withRecommendedSettings = (
   const recommended = parseConfiguration(content, nativeRule);
   if (recommended === undefined) return variant;
   return Object.assign({}, variant, { recommended });
+};
+
+const parseConfiguration = (section: MarkdownNode[], nativeRule: string): unknown => {
+  const code = section.find((node) => node.type === "code" && node.lang === "json");
+  if (code?.value === undefined) return undefined;
+  const source = code.value.trim();
+  const json = source.startsWith("{") ? source : `{${source}}`;
+  const configuration = JSON.parse(json) as Record<string, unknown>;
+  const rules = configuration.rules;
+  const hasTopLevelRule = Object.hasOwn(configuration, nativeRule);
+  if (hasTopLevelRule) return configuration[nativeRule];
+  const hasObjectType = typeof rules === "object";
+  const isArray = Array.isArray(rules);
+  const isRulesObject = hasObjectType && rules !== null && !isArray;
+  if (!isRulesObject) return undefined;
+  return (rules as Record<string, unknown>)[nativeRule];
 };
 
 const coverageForLanguages = (
@@ -422,35 +258,6 @@ const coverageForLanguages = (
   return languages
     .map((language) => coverageByLanguage.get(language))
     .filter((coverage): coverage is RuleCoverage => coverage !== undefined);
-};
-
-const parseRuleVariantRow = (request: RuleVariantRowRequest): RuleVariant => {
-  const { contentByHeading, coverageByLanguage, ruleId, row } = request;
-  const cells = childNodes(row);
-  const languageLabel = nodeText(cellAt(cells, 0));
-  const { nativeRule, plugin } = nativeRuleMapping(cellAt(cells, 1));
-  const languages = languageLabel.split(/\s*\/\s*/u);
-  const coverage = coverageForLanguages(languages, coverageByLanguage, ruleId);
-  const content = contentByHeading.get(`${languageLabel} — ${plugin}`) ?? [];
-  const variant: RuleVariant = {
-    anchor: ruleVariantAnchor(cells),
-    coverage,
-    defaultState: defaultRuleState(content),
-    languages,
-    nativeRule,
-    plugin,
-    settings: nodeText(cellAt(cells, 4)),
-  };
-  return withRecommendedSettings(variant, content, nativeRule);
-};
-
-const contentSectionsByHeading = (section: MarkdownNode[]): Map<string, MarkdownNode[]> => {
-  const sections = headingSections(section, 4);
-  return new Map(
-    sections.map(
-      ({ heading, index, end }) => [nodeText(heading), section.slice(index, end)] as const,
-    ),
-  );
 };
 
 const ruleVariants = (
@@ -468,6 +275,15 @@ const ruleVariants = (
     .map((row) => parseRuleVariantRow({ contentByHeading, coverageByLanguage, ruleId, row }));
 };
 
+const contentSectionsByHeading = (section: MarkdownNode[]): Map<string, MarkdownNode[]> => {
+  const sections = headingSections(section, 4);
+  return new Map(
+    sections.map(
+      ({ heading, index, end }) => [nodeText(heading), section.slice(index, end)] as const,
+    ),
+  );
+};
+
 const coveragePairsForRow = (row: MarkdownNode, language: string): CoveragePair[] => {
   const cells = childNodes(row);
   const ruleIds = nodeText(cellAt(cells, 0)).match(RULE_ID_PATTERN) ?? [];
@@ -479,6 +295,12 @@ const coveragePairsForRow = (row: MarkdownNode, language: string): CoveragePair[
   return ruleIds.map((ruleId) => ({ ruleId, coverage }));
 };
 
+const cellAt = (cells: MarkdownNode[], index: number): MarkdownNode => {
+  const cell = cells[index];
+  if (cell !== undefined) return cell;
+  return { type: "text" };
+};
+
 const coveragePairsForSection = (
   section: MarkdownNode[],
   descriptor: { end: number; heading: MarkdownNode; index: number },
@@ -488,6 +310,187 @@ const coveragePairsForSection = (
   const table = requiredTable(contents, `${language} coverage`);
   const rows = childNodes(table).slice(1);
   return rows.flatMap((row) => coveragePairsForRow(row, language));
+};
+
+const nodeText = (node: MarkdownNode): string => {
+  if (node.value !== undefined) return node.value;
+  const separator = node.type === "tableRow" ? " " : "";
+  return childNodes(node).map(nodeText).join(separator);
+};
+
+const runtimeRule = (rule: RuleSearchRecord) => ({
+  description: rule.description,
+  id: rule.id,
+  languages: rule.languages,
+  name: rule.name,
+  tags: rule.tags,
+  variants: rule.variants,
+  searchTerms: searchTerms(rule.searchText),
+});
+
+const searchTerms = (searchText: string): string =>
+  Array.from(new Set(searchText.split(/\s+/u).filter(Boolean))).join(" ");
+
+const generateCatalog = async (): Promise<void> => {
+  const source = readFileSync(SOURCE_FILE, "utf8");
+  const document = parseDocument(source);
+  const rules = requiredRules(childNodes(document));
+  validateTopics(rules);
+  validateCoverage(
+    childNodes(document),
+    rules.map(({ id }) => id),
+  );
+  validateLinks(document);
+  const indexedRules = buildSearchIndex(document, rules);
+  await writeCatalog(
+    renderCatalog(source, indexedRules),
+    renderSearchCatalog(source, indexedRules),
+  );
+};
+
+const requiredRules = (nodes: MarkdownNode[]): RuleSummary[] => {
+  const sectionIndex = headingIndex(nodes, 2, "All rules");
+  if (sectionIndex < 0) throw new Error("missing All rules section");
+  const section = sectionAfter(nodes, sectionIndex, 2);
+  const table = requiredTable(section, "All rules");
+  const rules = childNodes(table).slice(1).map(ruleSummaryFromRow);
+  assertUniqueRuleIds(rules);
+  return rules;
+};
+
+const assertUniqueRuleIds = (rules: RuleSummary[]): void => {
+  const ids = rules.map(({ id }) => id);
+  const repeatedIds = duplicates(ids);
+  const hasIds = ids.length > 0;
+  const hasRepeatedIds = repeatedIds.length > 0;
+  const hasInvalidIds = !hasIds || hasRepeatedIds;
+  if (hasInvalidIds) {
+    throw new Error(`invalid All rules IDs: ${repeatedIds.join(", ") || "none found"}`);
+  }
+};
+
+const validateTopics = (rules: RuleSummary[]): void => {
+  const allowedTopics = new Set<string>(TOPIC_TAGS);
+  const invalidValues = rules.flatMap((rule) => topicProblems(rule, allowedTopics));
+  if (invalidValues.length > 0) {
+    throw new Error(`invalid topic tags: ${invalidValues.join(", ")}`);
+  }
+};
+
+const duplicates = (values: string[]): string[] => {
+  const sorted = values.toSorted();
+  return sorted.filter((value, index) => value === sorted[index - 1]);
+};
+
+const validateCoverage = (nodes: MarkdownNode[], ruleIds: string[]): void => {
+  const sectionIndex = headingIndex(nodes, 2, "Coverage by language");
+  const section = sectionAfter(nodes, sectionIndex, 2);
+  coverageSections(section).forEach(({ heading, index, end }) => {
+    const contents = section.slice(index + 1, end);
+    const headingName = nodeText(heading);
+    const table = requiredTable(contents, headingName);
+    assertCoverage(headingName, rowIds(table), ruleIds);
+  });
+};
+
+const validateLinks = (document: MarkdownNode): void => {
+  const nodes = Array.from(markdownNodes(document));
+  const nodesByType = Map.groupBy(nodes, ({ type }) => type);
+  const anchors = linkAnchorIds(nodesByType);
+  const localLinks = localLinkTargets(nodesByType);
+  const fragments = localLinks.map((url) => decodeURIComponent(url.slice(1)));
+  const uniqueFragments = Array.from(new Set(fragments));
+  const missingLinks = uniqueFragments.filter((fragment) => !anchors.has(fragment));
+  if (missingLinks.length > 0) throw new Error(`broken local links: ${missingLinks.join(", ")}`);
+};
+
+const linkAnchorIds = (nodesByType: Map<string, MarkdownNode[]>): Set<string> => {
+  const slugger = new GithubSlugger();
+  const headingNodes = nodesByType.get("heading") ?? [];
+  const headingAnchors = headingNodes.map((node) => slugger.slug(nodeText(node)));
+  const htmlNodes = nodesByType.get("html") ?? [];
+  const htmlValues = htmlNodes.map(({ value }) => value ?? "");
+  const htmlAnchorIds = htmlValues.flatMap(htmlAnchors);
+  return new Set(headingAnchors.concat(htmlAnchorIds));
+};
+
+const localLinkTargets = (nodesByType: Map<string, MarkdownNode[]>): string[] => {
+  const linkNodes = nodesByType.get("link") ?? [];
+  const definitionNodes = nodesByType.get("definition") ?? [];
+  const referenceNodes = nodesByType.get("linkReference") ?? [];
+  const links = linkNodes.filter(isLinkNode).map(({ url }) => url);
+  const definitions = new Map<string, string>(
+    definitionNodes
+      .filter(isLinkDefinition)
+      .map(({ identifier, url }) => [identifier.toLowerCase(), url] as const),
+  );
+  const references = referenceNodes
+    .filter(isLinkReference)
+    .map(({ identifier }) => identifier.toLowerCase());
+  const referenceLinks = references
+    .map((id) => definitions.get(id))
+    .filter((url): url is string => url !== undefined);
+  return links.concat(referenceLinks).filter((url) => url.startsWith("#"));
+};
+
+const markdownNodes = function* (node: MarkdownNode): Generator<MarkdownNode> {
+  yield node;
+  for (const child of childNodes(node)) yield* markdownNodes(child);
+};
+
+const buildSearchIndex = (document: MarkdownNode, rules: RuleSummary[]): RuleSearchRecord[] => {
+  const index: RuleTextIndex = new Map(rules.map(({ id }) => [id, new Set<string>()]));
+  indexSearchableBlocks(index, document);
+  indexRuleDetails(index, document);
+  const variants = buildRuleVariants(document);
+  return rules.map((rule) => searchRecord(rule, index, variants));
+};
+
+const indexRuleDetails = (index: RuleTextIndex, document: MarkdownNode): void => {
+  const documentNodes = childNodes(document);
+  const detailsIndex = headingIndex(documentNodes, 2, "Rule details");
+  if (detailsIndex < 0) throw new Error("missing Rule details section");
+  const details = sectionAfter(documentNodes, detailsIndex, 2);
+  const ruleSections = headingSections(details, 3).filter(({ heading }) =>
+    /^LEG\d{3}\b/.test(nodeText(heading)),
+  );
+  ruleSections.forEach((section) => indexRuleDetail(index, details, section));
+};
+
+const indexSearchableBlocks = (index: RuleTextIndex, document: MarkdownNode): void => {
+  visitNodes(document, (node) => {
+    if (!SEARCHABLE_BLOCK_TYPES.has(node.type)) return;
+    const text = nodeText(node).trim();
+    const ruleIds = text.match(RULE_ID_PATTERN) ?? [];
+    ruleIds.forEach((ruleId) => appendSearchText(index, ruleId, text));
+  });
+};
+
+const visitNodes = (node: MarkdownNode, visit: (node: MarkdownNode) => void): void => {
+  visit(node);
+  childNodes(node).forEach((child) => visitNodes(child, visit));
+};
+
+const requiredTable = (nodes: MarkdownNode[], section: string): MarkdownNode => {
+  const table = nodes.find((node) => node.type === "table");
+  if (table !== undefined) return table;
+  throw new Error(`missing table in ${section}`);
+};
+
+const buildRuleVariants = (document: MarkdownNode): Map<string, RuleVariant[]> => {
+  const documentNodes = childNodes(document);
+  const detailsIndex = headingIndex(documentNodes, 2, "Rule details");
+  const details = sectionAfter(documentNodes, detailsIndex, 2);
+  const sections = headingSections(details, 3).filter(({ heading }) =>
+    /^LEG\d{3}\b/u.test(nodeText(heading)),
+  );
+  const coverageByRule = buildCoverageIndex(document);
+  return new Map(
+    sections.map(({ heading, index, end }) => {
+      const ruleId = nodeText(heading).match(RULE_ID_PATTERN)?.[0] ?? "";
+      return [ruleId, ruleVariants(details.slice(index, end), coverageByRule)];
+    }),
+  );
 };
 
 const buildCoverageIndex = (document: MarkdownNode): Map<string, RuleCoverage[]> => {
@@ -507,24 +510,45 @@ const buildCoverageIndex = (document: MarkdownNode): Map<string, RuleCoverage[]>
   );
 };
 
-const buildRuleVariants = (document: MarkdownNode): Map<string, RuleVariant[]> => {
-  const documentNodes = childNodes(document);
-  const detailsIndex = headingIndex(documentNodes, 2, "Rule details");
-  const details = sectionAfter(documentNodes, detailsIndex, 2);
-  const sections = headingSections(details, 3).filter(({ heading }) =>
-    /^LEG\d{3}\b/u.test(nodeText(heading)),
-  );
-  const coverageByRule = buildCoverageIndex(document);
-  return new Map(
-    sections.map(({ heading, index, end }) => {
-      const ruleId = nodeText(heading).match(RULE_ID_PATTERN)?.[0] ?? "";
-      return [ruleId, ruleVariants(details.slice(index, end), coverageByRule)];
-    }),
-  );
+const sectionAfter = (nodes: MarkdownNode[], start: number, depth: number): MarkdownNode[] => {
+  const end = nodes.findIndex((node, index) => isSectionBoundary(node, index, start, depth));
+  if (end < 0) return nodes.slice(start + 1);
+  return nodes.slice(start + 1, end);
 };
 
-const sourceRevision = (source: string): string =>
-  `sha256:${createHash("sha256").update(source).digest("hex")}`;
+const coverageSections = (
+  section: MarkdownNode[],
+): Array<{ end: number; heading: MarkdownNode; index: number }> => {
+  const headings = headingSections(section, 3);
+  const sections = headings.filter(({ heading }) => nodeText(heading).endsWith(" coverage"));
+  if (sections.length === 0) throw new Error("missing language coverage tables");
+  return sections;
+};
+
+const headingIndex = (nodes: MarkdownNode[], depth: number, title: string): number =>
+  nodes.findIndex((node) => {
+    const matchesType = isHeading(node);
+    const matchesDepth = node.depth === depth;
+    const matchesTitle = nodeText(node) === title;
+    const matchesHeadingShape = matchesType && matchesDepth;
+    return matchesHeadingShape && matchesTitle;
+  });
+
+const headingSections = (
+  section: MarkdownNode[],
+  depth: number,
+): Array<{ end: number; heading: MarkdownNode; index: number }> => {
+  const headings = section
+    .map((heading, index) => ({ heading, index }))
+    .filter(({ heading }) => heading.type === "heading" && heading.depth === depth);
+  return headings.map((entry, index) => {
+    const nextHeading = headings[index + 1];
+    if (nextHeading === undefined) return Object.assign({}, entry, { end: section.length });
+    return Object.assign({}, entry, { end: nextHeading.index });
+  });
+};
+
+const childNodes = (node: MarkdownNode): MarkdownNode[] => node.children ?? [];
 
 const renderCatalog = (source: string, rules: RuleSearchRecord[]): string => {
   const catalog = {
@@ -538,19 +562,6 @@ const renderCatalog = (source: string, rules: RuleSearchRecord[]): string => {
   return `${JSON.stringify(catalog, null, 2)}\n`;
 };
 
-const searchTerms = (searchText: string): string =>
-  Array.from(new Set(searchText.split(/\s+/u).filter(Boolean))).join(" ");
-
-const runtimeRule = (rule: RuleSearchRecord) => ({
-  description: rule.description,
-  id: rule.id,
-  languages: rule.languages,
-  name: rule.name,
-  tags: rule.tags,
-  variants: rule.variants,
-  searchTerms: searchTerms(rule.searchText),
-});
-
 const renderSearchCatalog = (source: string, rules: RuleSearchRecord[]): string => {
   const runtimeRules = rules.map(runtimeRule);
   const catalog = {
@@ -563,13 +574,8 @@ const renderSearchCatalog = (source: string, rules: RuleSearchRecord[]): string 
   return `${JSON.stringify(catalog, null, 2)}\n`;
 };
 
-const formatCatalog = async (file: string, contents: string): Promise<string> => {
-  const result = await format(file, contents);
-  if (result.errors.length > 0) {
-    throw new Error(`${file}: ${result.errors.map(({ message }) => message).join("; ")}`);
-  }
-  return result.code;
-};
+const sourceRevision = (source: string): string =>
+  `sha256:${createHash("sha256").update(source).digest("hex")}`;
 
 const writeCatalog = async (catalog: string, searchCatalog: string): Promise<void> => {
   const formattedCatalog = await formatCatalog(OUTPUT_FILE, catalog);
@@ -579,22 +585,16 @@ const writeCatalog = async (catalog: string, searchCatalog: string): Promise<voi
   writeFileSync(SEARCH_OUTPUT_FILE, formattedSearchCatalog);
 };
 
-const generateCatalog = async (): Promise<void> => {
-  const source = readFileSync(SOURCE_FILE, "utf8");
-  const document = parseDocument(source);
-  const rules = requiredRules(childNodes(document));
-  validateTopics(rules);
-  validateCoverage(
-    childNodes(document),
-    rules.map(({ id }) => id),
-  );
-  validateLinks(document);
-  const indexedRules = buildSearchIndex(document, rules);
-  await writeCatalog(
-    renderCatalog(source, indexedRules),
-    renderSearchCatalog(source, indexedRules),
-  );
+const formatCatalog = async (file: string, contents: string): Promise<string> => {
+  const result = await format(file, contents);
+  if (result.errors.length > 0) {
+    throw new Error(`${file}: ${result.errors.map(({ message }) => message).join("; ")}`);
+  }
+  return result.code;
 };
+
+const parseDocument = (source: string): MarkdownNode =>
+  unified().use(remarkParse).use(remarkGfm).parse(source) as unknown as MarkdownNode;
 
 const errorMessage = (error: unknown): string => {
   if (error instanceof Error) return error.message;

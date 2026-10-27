@@ -16,6 +16,20 @@ import { parse as parseJsonc } from "jsonc-parser";
 import { commandIsAvailable, readSource, runLinters } from "../../src/cli/index.ts";
 import type { Options, Source } from "../../src/cli/types.ts";
 
+const cliPath = join(process.cwd(), "bin", "js", "legibility");
+
+const oxlintPath = join(process.cwd(), "node_modules", ".bin", "oxlint");
+
+const enableRuleArgs = [
+  "rule",
+  "LEG038",
+  "--language",
+  "javascript",
+  "--plugin",
+  "oxlint",
+  "--enable",
+];
+
 const createFixture = (): { root: string; cleanup: () => void } => {
   const root = mkdtempSync(join(tmpdir(), "legibility-test-"));
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
@@ -86,34 +100,6 @@ const source = (root: string, linters: Source["config"]["linters"]): Source => (
   },
 });
 
-const cliPath = join(process.cwd(), "bin", "js", "legibility");
-const oxlintPath = join(process.cwd(), "node_modules", ".bin", "oxlint");
-const enableRuleArgs = [
-  "rule",
-  "LEG038",
-  "--language",
-  "javascript",
-  "--plugin",
-  "oxlint",
-  "--enable",
-];
-
-const runCli = (root: string, args: string[]) => {
-  const cliArguments = ["--experimental-strip-types", cliPath].concat(args);
-  return spawnSync(process.execPath, cliArguments, { cwd: root, encoding: "utf8" });
-};
-
-const runNativeLineBudget = (root: string, lineCount: number) => {
-  const functionBody = Array.from({ length: lineCount - 2 }, () => "  void 1;").join("\n");
-  const sourcePath = join(root, "src", "index.js");
-  mkdirSync(join(root, "src"), { recursive: true });
-  writeFileSync(sourcePath, `function measure() {\n${functionBody}\n}\nmeasure();\n`);
-  return spawnSync(oxlintPath, ["--deny", "max-lines-per-function", "src/index.js"], {
-    cwd: root,
-    encoding: "utf8",
-  });
-};
-
 const runConfiguredCli = (root: string, args: string[], environment: Record<string, string>) =>
   spawnSync(process.execPath, ["--experimental-strip-types", cliPath].concat(args), {
     cwd: root,
@@ -121,16 +107,10 @@ const runConfiguredCli = (root: string, args: string[], environment: Record<stri
     env: Object.assign({}, process.env, environment),
   });
 
-const assertRuleSearchOutput = (root: string): void => {
-  const search = runCli(root, ["rules", "--search", "function length"]);
-  const searchOutput = `${search.stdout}\n${search.stderr}`;
-  assert.equal(search.status, 0, searchOutput);
-  assert.match(searchOutput, /2 of 62 rules match/);
-  assert.ok(
-    searchOutput.includes(
-      "Details: https://github.com/yowainwright/legibility/blob/main/docs/rules.md#leg038",
-    ),
-  );
+const assertRuleCatalogAccess = (root: string): void => {
+  assertRuleSearchOutput(root);
+  assertRuleDetailsOutput(root);
+  assert.equal(existsSync(join(root, "legibility.json")), false);
 };
 
 const assertRuleDetailsOutput = (root: string): void => {
@@ -152,10 +132,16 @@ const assertRuleDetailsOutput = (root: string): void => {
   );
 };
 
-const assertRuleCatalogAccess = (root: string): void => {
-  assertRuleSearchOutput(root);
-  assertRuleDetailsOutput(root);
-  assert.equal(existsSync(join(root, "legibility.json")), false);
+const assertRuleSearchOutput = (root: string): void => {
+  const search = runCli(root, ["rules", "--search", "function length"]);
+  const searchOutput = `${search.stdout}\n${search.stderr}`;
+  assert.equal(search.status, 0, searchOutput);
+  assert.match(searchOutput, /2 of 62 rules match/);
+  assert.ok(
+    searchOutput.includes(
+      "Details: https://github.com/yowainwright/legibility/blob/main/docs/rules.md#leg038",
+    ),
+  );
 };
 
 const assertRuleEnableDryRun = (root: string, configPath: string, original: string): void => {
@@ -187,10 +173,26 @@ const assertRuleLineBudget = (root: string): void => {
   assert.match(overLimitOutput, /max-lines-per-function/);
 };
 
+const runNativeLineBudget = (root: string, lineCount: number) => {
+  const functionBody = Array.from({ length: lineCount - 2 }, () => "  void 1;").join("\n");
+  const sourcePath = join(root, "src", "index.js");
+  mkdirSync(join(root, "src"), { recursive: true });
+  writeFileSync(sourcePath, `function measure() {\n${functionBody}\n}\nmeasure();\n`);
+  return spawnSync(oxlintPath, ["--deny", "max-lines-per-function", "src/index.js"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+};
+
 const assertRuleEnableIsIdempotent = (root: string, configPath: string, updated: string): void => {
   const repeated = runCli(root, enableRuleArgs);
   assert.equal(repeated.status, 0, `${repeated.stdout}\n${repeated.stderr}`);
   assert.equal(readFileSync(configPath, "utf8"), updated);
+};
+
+const runCli = (root: string, args: string[]) => {
+  const cliArguments = ["--experimental-strip-types", cliPath].concat(args);
+  return spawnSync(process.execPath, cliArguments, { cwd: root, encoding: "utf8" });
 };
 
 const restoreEnvironment = (previousValues: Record<string, string | undefined>): void => {
