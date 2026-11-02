@@ -153,3 +153,11 @@ export const OXLINT_CONFIG_FILENAMES = [
 
 export const METADATA_FILENAMES = new Set(["package.json", "pyproject.toml", "go.mod"]);
 export const METADATA_READ_CONCURRENCY = 8;
+
+export const GIT_INVENTORY_ARGS = [
+  "ls-files",
+  "--cached",
+  "--others",
+  "--exclude-standard",
+  "--deduplicate",
+];

@@ -1,4 +1,4 @@
-export type DebugLogFunc = (message: string, caller: string, ...args: unknown[]) => void;
+export type DebugLogFunc = (message: string, caller: string) => void;
 export type PrintFunc = (message: string) => void;
 export type ItemFunc = (index: number, message: string) => void;
 

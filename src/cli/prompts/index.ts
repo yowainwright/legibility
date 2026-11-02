@@ -627,7 +627,7 @@ const runNativeSelector = (
       finishSelector({ runtime, handlers, error, resolve, reject });
     const readNext = createNativeInputReader(promptKey, runtime, finish, render);
     render();
-    void readNext().catch(reject);
+    void readNext().catch((error) => reject(error));
   });
 };
 

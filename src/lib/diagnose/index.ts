@@ -1,7 +1,7 @@
-import { readFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
 import { basename, extname, join } from "node:path";
-import * as Effect from "effect/Effect";
-import * as Stream from "effect/Stream";
+import { addAbortSignal } from "node:stream";
+import { buffer } from "node:stream/consumers";
 import {
   LANGUAGE_BY_EXTENSION,
   LANGUAGE_DEFINITIONS,
@@ -24,7 +24,7 @@ import type {
   PackageManagerEvidence,
   ProjectDiagnosis,
 } from "./types.ts";
-import { languageFilePaths, projectFilePaths } from "./utils.ts";
+import { forEachPath, languageFilePaths, projectFilePaths } from "./utils.ts";
 export { setGitOutputReader } from "./utils.ts";
 
 type LanguageCount = {
@@ -45,17 +45,15 @@ type DiagnosisAccumulator = {
   tools: Map<string, Map<LinterEvidence["kind"], EvidenceCount>>;
 };
 
-export const diagnose = (root: string): Promise<ProjectDiagnosis> => {
+export const diagnose = async (root: string): Promise<ProjectDiagnosis> => {
   const accumulator = createAccumulator();
-  const inspection = projectFilePaths(root).pipe(
-    Stream.filter((path) => inspectProjectPath(path, accumulator)),
-    Stream.mapEffect((path) => inspectMetadataFile(root, path, accumulator), {
-      concurrency: METADATA_READ_CONCURRENCY,
-    }),
-    Stream.runDrain,
-    Effect.map(() => diagnosisResult(accumulator)),
-  );
-  return Effect.runPromise(inspection);
+  const controller = new AbortController();
+  const paths = projectFilePaths(root, controller.signal);
+  const metadata = metadataPaths(paths, accumulator);
+  const inspect = (path: string, signal: AbortSignal) =>
+    inspectMetadataFile(root, path, accumulator, signal);
+  await forEachPath(metadata, inspect, { controller, concurrency: METADATA_READ_CONCURRENCY });
+  return diagnosisResult(accumulator);
 };
 
 export const detectLanguages = (root: string): DetectedLanguage[] => {
@@ -70,6 +68,15 @@ const createAccumulator = (): DiagnosisAccumulator => ({
   tools: new Map(),
 });
 
+const metadataPaths = async function* (
+  paths: AsyncGenerator<string>,
+  accumulator: DiagnosisAccumulator,
+): AsyncGenerator<string> {
+  for await (const path of paths) {
+    if (inspectProjectPath(path, accumulator)) yield path;
+  }
+};
+
 const inspectProjectPath = (path: string, accumulator: DiagnosisAccumulator): boolean => {
   const name = basename(path);
   if (!hasCandidateSignal(path)) return false;
@@ -77,18 +84,21 @@ const inspectProjectPath = (path: string, accumulator: DiagnosisAccumulator): bo
   return METADATA_FILENAMES.has(name);
 };
 
-const inspectMetadataFile = (
+const inspectMetadataFile = async (
   root: string,
   path: string,
   accumulator: DiagnosisAccumulator,
-): Effect.Effect<void, unknown> =>
-  Effect.tryPromise({
-    try: (signal) => readFile(join(root, path), { encoding: "utf8", signal }),
-    catch: (error) => error,
-  }).pipe(
-    Effect.map((content) => recordMetadataContent(content, path, accumulator)),
-    Effect.catchIf(isMissingFileError, () => Effect.void),
-  );
+  signal: AbortSignal,
+): Promise<void> => {
+  try {
+    const stream = createReadStream(join(root, path));
+    addAbortSignal(signal, stream);
+    const bytes = await buffer(stream);
+    recordMetadataContent(bytes.toString("utf8"), path, accumulator);
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error;
+  }
+};
 
 const diagnosisResult = (accumulator: DiagnosisAccumulator): ProjectDiagnosis => ({
   languages: detectedLanguages(accumulator),
@@ -290,6 +300,8 @@ const goModuleInLine = (line: string): string | undefined => {
 
 const recordLanguage = (path: string, accumulator: DiagnosisAccumulator): void => {
   const extension = extname(path).toLowerCase();
+  const isLanguage = Object.hasOwn(LANGUAGE_BY_EXTENSION, extension);
+  if (!isLanguage) return;
   const languageId = LANGUAGE_BY_EXTENSION[extension as keyof typeof LANGUAGE_BY_EXTENSION];
   if (!languageId) return;
   const current = accumulator.languages.get(languageId) ?? { count: 0, files: [] };

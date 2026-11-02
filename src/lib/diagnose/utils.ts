@@ -3,24 +3,30 @@ import { readdir } from "node:fs/promises";
 import { spawn, type ChildProcess } from "node:child_process";
 import { StringDecoder } from "node:string_decoder";
 import { dirname, join, relative, resolve, sep } from "node:path";
-import * as Stream from "effect/Stream";
-import * as Effect from "effect/Effect";
-import * as Queue from "effect/Queue";
-import ignore from "ignore";
-import { IGNORED_DIRECTORIES } from "./constants.ts";
+import { addAbortSignal, PassThrough } from "node:stream";
+import { createIgnoreMatcher } from "../ignore/index.ts";
+import type { IgnoreMatcher } from "../ignore/types.ts";
+import { GIT_INVENTORY_ARGS, IGNORED_DIRECTORIES } from "./constants.ts";
 import type { GitOutputReader } from "./types.ts";
 
 type IgnoreLayer = {
   base: string;
-  matcher: ignore.Ignore;
+  matcher: IgnoreMatcher;
   parent?: IgnoreLayer;
 };
 
 type GitOutputRequest = {
   root: string;
   args: string[];
-  queue: Queue.Queue<Uint8Array, unknown>;
+  output: PassThrough;
   signal: AbortSignal;
+};
+
+type PathVisitor = (path: string, signal: AbortSignal) => Promise<void>;
+
+type PathWorkOptions = {
+  controller: AbortController;
+  concurrency: number;
 };
 
 let nativeGitOutputReader: GitOutputReader | undefined;
@@ -29,25 +35,35 @@ export const setGitOutputReader = (reader: GitOutputReader | undefined): void =>
   nativeGitOutputReader = reader;
 };
 
-export const projectFilePaths = (root: string): Stream.Stream<string, unknown> =>
-  Stream.fromAsyncIterable(iterateProjectFiles(root), (error) => error);
+export const forEachPath = async (
+  paths: AsyncGenerator<string>,
+  visit: PathVisitor,
+  options: PathWorkOptions,
+): Promise<void> => {
+  const { controller, concurrency } = options;
+  const workers = Array.from({ length: concurrency }, () => visitPaths(paths, visit, controller));
+  try {
+    await Promise.allSettled(workers);
+    controller.signal.throwIfAborted();
+  } finally {
+    controller.abort();
+    await paths.return(undefined);
+  }
+};
 
 export const languageFilePaths = (root: string): Generator<string> => {
   const absoluteRoot = resolve(root);
   return walkDirectorySync(absoluteRoot, absoluteRoot, ignoreLayer(absoluteRoot));
 };
 
-const iterateProjectFiles = async function* (root: string): AsyncGenerator<string> {
-  const deletedPaths = await readDeletedGitPaths(root);
+export const projectFilePaths = async function* (
+  root: string,
+  signal: AbortSignal,
+): AsyncGenerator<string> {
+  signal.throwIfAborted();
+  const deletedPaths = await readDeletedGitPaths(root, signal);
   if (deletedPaths) {
-    const inventoryArgs = [
-      "ls-files",
-      "--cached",
-      "--others",
-      "--exclude-standard",
-      "--deduplicate",
-    ];
-    for await (const path of gitPaths(root, inventoryArgs)) {
+    for await (const path of gitPaths(root, GIT_INVENTORY_ARGS, signal)) {
       if (!deletedPaths.has(path)) yield path;
     }
     return;
@@ -56,10 +72,31 @@ const iterateProjectFiles = async function* (root: string): AsyncGenerator<strin
   yield* walkDirectory(absoluteRoot, absoluteRoot, ignoreLayer(absoluteRoot));
 };
 
-const readDeletedGitPaths = async (root: string): Promise<Set<string> | undefined> => {
+const visitPaths = async (
+  paths: AsyncGenerator<string>,
+  visit: PathVisitor,
+  controller: AbortController,
+): Promise<void> => {
+  try {
+    while (true) {
+      controller.signal.throwIfAborted();
+      const next = await paths.next();
+      if (next.done) return;
+      controller.signal.throwIfAborted();
+      await visit(next.value, controller.signal);
+    }
+  } catch (error) {
+    controller.abort(error);
+  }
+};
+
+const readDeletedGitPaths = async (
+  root: string,
+  signal: AbortSignal,
+): Promise<Set<string> | undefined> => {
   if (!hasGitMetadata(root)) return undefined;
   try {
-    return await collectPaths(gitPaths(root, ["ls-files", "--deleted"]));
+    return await collectPaths(gitPaths(root, ["ls-files", "--deleted"], signal));
   } catch (error) {
     if (isGitUnavailable(error)) return undefined;
     throw error;
@@ -91,50 +128,79 @@ const collectPaths = async (paths: AsyncGenerator<string>): Promise<Set<string>>
   return collectedPaths;
 };
 
-const gitPaths = async function* (root: string, args: string[]): AsyncGenerator<string> {
+const gitPaths = async function* (
+  root: string,
+  args: string[],
+  signal: AbortSignal,
+): AsyncGenerator<string> {
   const gitArguments = args.concat("-z", "--", ".");
-  const chunks = gitOutputChunks(root, gitArguments);
-  yield* gitPathStream(Stream.toAsyncIterable(chunks));
+  const chunks = gitOutputChunks(root, gitArguments, signal);
+  yield* gitPathStream(chunks);
 };
 
-const gitOutputChunks = (root: string, args: string[]): Stream.Stream<Uint8Array, unknown> => {
+const gitOutputChunks = async function* (
+  root: string,
+  args: string[],
+  signal: AbortSignal,
+): AsyncGenerator<Uint8Array> {
   const reader = nativeGitOutputReader ?? readGitOutput;
-  return Stream.callback<Uint8Array, unknown>(
-    (queue) => {
-      const work = Effect.tryPromise({
-        try: (signal) => consumeGitOutput(reader, { root, args, queue, signal }),
-        catch: (error) => error,
-      }).pipe(
-        Effect.flatMap((code) => Effect.sync(() => assertGitExit({ code }))),
-        Effect.flatMap(() => Queue.end(queue)),
-        Effect.catchCause((cause) => Queue.failCause(queue, cause)),
-        Effect.forkScoped,
-      );
-      return work;
-    },
-    { bufferSize: 2 },
-  );
+  const output = new PassThrough({ objectMode: true, highWaterMark: 2 });
+  addAbortSignal(signal, output);
+  const work = pipeGitOutput(reader, { root, args, output, signal });
+  try {
+    for await (const chunk of output) yield chunk;
+  } finally {
+    output.destroy();
+    await work;
+  }
+};
+
+const pipeGitOutput = async (reader: GitOutputReader, request: GitOutputRequest): Promise<void> => {
+  const { output } = request;
+  try {
+    const code = await consumeGitOutput(reader, request);
+    assertGitExit({ code });
+    output.end();
+  } catch (error) {
+    const failure = error instanceof Error ? error : new Error(String(error));
+    output.destroy(failure);
+  }
 };
 
 const consumeGitOutput = async (
   reader: GitOutputReader,
   request: GitOutputRequest,
 ): Promise<number> => {
-  const { root, args, queue, signal } = request;
+  const { root, args, output, signal } = request;
   let cancel = () => {};
   const registerCancel = (stop: () => void): void => {
     cancel = stop;
     signal.addEventListener("abort", stop, { once: true });
+    output.once("close", stop);
     if (signal.aborted) stop();
   };
-  const consume = (chunk: Uint8Array) =>
-    Effect.runPromise(Queue.offer(queue, chunk), { signal }).then(() => {});
+  const consume = (chunk: Uint8Array) => writeGitChunk(output, chunk);
   try {
     return await reader(root, args, consume, registerCancel);
   } finally {
     signal.removeEventListener("abort", cancel);
+    output.removeListener("close", cancel);
   }
 };
+
+const writeGitChunk = (output: PassThrough, chunk: Uint8Array): Promise<void> =>
+  new Promise((resolveWrite, reject) => {
+    const onClose = () => reject(new Error("Git inventory stream closed during a write"));
+    output.once("close", onClose);
+    output.write(chunk, () => {
+      output.removeListener("close", onClose);
+      if (output.destroyed) {
+        onClose();
+        return;
+      }
+      resolveWrite();
+    });
+  });
 
 const readGitOutput: GitOutputReader = async (root, args, consume, registerCancel) => {
   const child = spawn("git", args, { cwd: root, stdio: ["ignore", "pipe", "ignore"] });
@@ -167,7 +233,7 @@ const assertGitExit = (result: { code: number; error?: Error }): void => {
   throw Object.assign(error, { code: result.code });
 };
 
-const gitPathStream = async function* (output: AsyncIterable<Uint8Array>): AsyncGenerator<string> {
+const gitPathStream = async function* (output: AsyncGenerator<Uint8Array>): AsyncGenerator<string> {
   const decoder = new StringDecoder("utf8");
   let remainder = "";
   for await (const chunk of output) {
@@ -246,7 +312,8 @@ const ignoreLayer = (directory: string, parent?: IgnoreLayer): IgnoreLayer => {
   }
   const canReuseParent = contents.length === 0 && parent !== undefined;
   if (canReuseParent) return parent;
-  return { base: directory, matcher: ignore().add(contents), parent };
+  const matcher = createIgnoreMatcher(contents);
+  return { base: directory, matcher, parent };
 };
 
 const ignoreDecision = (path: string, isDirectory: boolean, layer: IgnoreLayer): boolean => {

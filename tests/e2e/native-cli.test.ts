@@ -135,7 +135,11 @@ const expectLanguagePrompt = (): string[] => [
 ];
 
 const expectLinterSelection = (): string[] => [
-  'expect "Which linters should run?"',
+  "expect {",
+  '  "Which linters should run?" {}',
+  '  eof { puts "Native CLI exited before linter selection: [wait]"; exit 1 }',
+  '  timeout { puts "Timed out waiting for linter selection"; exit 1 }',
+  "}",
   'send "n"',
   'expect "0 selected"',
   'send " "',
