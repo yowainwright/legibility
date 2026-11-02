@@ -1,3 +1,5 @@
+import type { Key } from "node:readline";
+
 export type PromptChoice = {
   name: string;
   value: string;
@@ -9,7 +11,7 @@ export type PromptChoice = {
 export type PromptLine = (message: string) => Promise<string>;
 export type PromptKeyReader = () => Promise<string>;
 
-export type PromptKey = { name?: string; ctrl?: boolean };
+export type PromptKey = Key;
 export type SelectorMode = "multi" | "radio";
 
 export type SelectorState = {
@@ -41,7 +43,7 @@ export type SelectorRuntime = {
 };
 
 export type SelectorHandlers = {
-  onKeypress: (input: string | undefined, key?: PromptKey) => void;
+  onKeypress: (input: string | undefined, key: Key) => void;
 };
 
 export type SelectorFinish = (error?: Error) => void;

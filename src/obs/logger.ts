@@ -18,11 +18,6 @@ export const logger = ({ file, isLogging = false }: LoggerOptions): Logger => ({
   item: (index, message) => writeStdout(`${LOG_INDENT}${index}. ${message}`),
 });
 
-const formatArgs = (args: unknown[]): string => {
-  if (args.length === 0) return "";
-  return ` ${args.map(String).join(" ")}`;
-};
-
 const writeStderr = (message: string): void => {
   process.stderr.write(`${message}\n`);
 };
@@ -33,15 +28,15 @@ const writeStdout = (message: string): void => {
 
 const createWarnMethod =
   (file: string): DebugLogFunc =>
-  (message, caller, ...args) => {
+  (message, caller) => {
     const prefix = `${LOG_PREFIX}[${file}][${caller}]`;
-    writeStderr(`${prefix} ${message}${formatArgs(args)}`);
+    writeStderr(`${prefix} ${message}`);
   };
 
 const createDebugMethod =
   (isLogging: boolean, file: string): DebugLogFunc =>
-  (message, caller, ...args) => {
+  (message, caller) => {
     if (!isLogging) return;
     const prefix = `${LOG_PREFIX}[${file}][${caller}]`;
-    writeStderr(`${prefix} ${message}${formatArgs(args)}`);
+    writeStderr(`${prefix} ${message}`);
   };

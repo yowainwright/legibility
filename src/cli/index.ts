@@ -9,8 +9,8 @@ import {
   writeFileSync,
 } from "node:fs";
 import { basename, delimiter, dirname, extname, join, relative, resolve } from "node:path";
-import { spawn, spawnSync } from "node:child_process";
-import { parseArgs } from "node:util";
+import { execFile, spawn } from "node:child_process";
+import { parseArgs, promisify } from "node:util";
 import ruleCatalogJson from "../rules/search.json" with { type: "json" };
 import {
   applyEdits,
@@ -186,10 +186,12 @@ const CLI_RULE_STATES = new Map<string, RuleProjectState["state"]>([
   ["--deny", "enabled"],
   ["--warn", "enabled"],
   ["--allow", "disabled"],
-] as const);
+]);
 
 const RULES_DOCUMENTATION_URL =
   "https://github.com/yowainwright/legibility/blob/main/docs/rules.md";
+
+const execFileAsync = promisify(execFile);
 
 export const readSource = (path: string): Source => {
   const parsed = readJson(path);
@@ -840,7 +842,8 @@ const setupProject = async (log: Logger, verbose: boolean): Promise<number> => {
     log.print(`Detected package managers: ${packageManagerSummary.join(", ")}.`);
   }
   const languages = await promptForLanguages(diagnosis.languages);
-  log.debug(`Languages: ${languages.join(",") || "none"}`, "setupProject");
+  const languageMessage = `Languages: ${languages.join(",") || "none"}`;
+  log.debug(languageMessage, "setupProject");
   const selection = await selectSetupLinters(root, languages, diagnosis.tools, log);
   if ("exitCode" in selection) return selection.exitCode;
   const { names } = selection;
@@ -1309,7 +1312,7 @@ const updateHomebrewLinters = async (
 ): Promise<number> => {
   const refreshExit = await refreshHomebrew(root, config.prompt, log);
   if (refreshExit !== 0) return refreshExit;
-  const output = readHomebrewOutdated(root, log);
+  const output = await readHomebrewOutdated(root, log);
   if (output === undefined) {
     log.fail("Error: could not inspect Homebrew for outdated linters");
     return 2;
@@ -1318,21 +1321,20 @@ const updateHomebrewLinters = async (
   return finishHomebrewUpdate(root, updates, config, log);
 };
 
-const readHomebrewOutdated = (root: string, log: Logger): unknown | undefined => {
-  const result = spawnSync("brew", ["outdated", "--json=v2", "--formula"], {
-    cwd: root,
-    encoding: "utf8",
-    env: commandEnvironment(root, "brew"),
-  });
-  if (result.error) {
-    log.debug(`Could not inspect Homebrew: ${result.error.message}`, "update");
+const readHomebrewOutdated = async (root: string, log: Logger): Promise<unknown> => {
+  try {
+    const env = commandEnvironment(root, "brew");
+    const result = await execFileAsync("brew", ["outdated", "--json=v2", "--formula"], {
+      cwd: root,
+      encoding: "utf8",
+      env,
+    });
+    return parseHomebrewOutput(result.stdout, log);
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : String(error);
+    log.debug(`Could not inspect Homebrew: ${message}`, "update");
     return undefined;
   }
-  if (result.status !== 0) {
-    log.debug(`Homebrew outdated check exited with ${result.status ?? 1}`, "update");
-    return undefined;
-  }
-  return parseHomebrewOutput(result.stdout, log);
 };
 
 const parseHomebrewOutput = (stdout: string, log: Logger): unknown | undefined => {

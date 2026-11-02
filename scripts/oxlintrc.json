@@ -3,7 +3,7 @@
   "jsPlugins": [
     {
       "name": "legibility",
-      "specifier": "eslint-plugin-legibility"
+      "specifier": "oxlint-plugin-legibility"
     }
   ],
   "rules": {

@@ -4,7 +4,22 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test, { type TestContext } from "node:test";
+import { setImmediate } from "node:timers/promises";
 import { diagnose, setGitOutputReader } from "../../src/lib/diagnose/index.ts";
+import { forEachPath, projectFilePaths } from "../../src/lib/diagnose/utils.ts";
+import type { GitOutputReader } from "../../src/lib/diagnose/types.ts";
+import { createIgnoreMatcher } from "../../src/lib/ignore/index.ts";
+
+type WorkState = {
+  closed: boolean;
+  settled: boolean;
+  started: string[];
+};
+
+type GitWorkState = {
+  cancelled: boolean;
+  settled: boolean;
+};
 
 const expectedScriptTools = [
   {
@@ -39,6 +54,114 @@ const repeatedToolManifest = JSON.stringify({
   optionalDependencies: { oxlint: "1" },
   peerDependencies: { oxlint: "1" },
   scripts: { lint: "oxlint .", fix: "oxlint --fix ." },
+});
+
+const ignoreCases: [string, string, boolean, boolean][] = [
+  ["*.ts", "src/app.ts", true, false],
+  ["*.TS", "src/app.ts", true, false],
+  ["/app.ts", "src/app.ts", false, false],
+  ["/app.ts", "app.ts", true, false],
+  ["build/", "build", false, false],
+  ["build/", "build/app.ts", true, false],
+  ["**/app.ts", "app.ts", true, false],
+  ["a/**/b", "a/b", true, false],
+  ["a/**/b", "a/x/y/b", true, false],
+  ["a/**", "a/", false, false],
+  ["a/**", "a/b", true, false],
+  ["a/***/b", "a/x/b", true, false],
+  ["*.ts\n!keep.ts", "src/keep.ts", false, true],
+  ["!keep.ts\n*.ts", "src/keep.ts", true, false],
+  ["build/\n!build/app.ts", "build/app.ts", true, false],
+  ["build/*\n!build/keep/", "build/keep/app.ts", false, false],
+  ["# comment\n\n!", "comment", false, false],
+  ["\\#file", "#file", true, false],
+  ["\\!file", "!file", true, false],
+  ["file  ", "file", true, false],
+  ["file\\ ", "file ", true, false],
+  ["file\\", "file", false, false],
+  ["\uFEFF*.ts\r\n", "app.ts", true, false],
+  ["\\*", "*", true, false],
+  ["\\*", "file", false, false],
+  ["\\?", "?", true, false],
+  ["\\d", "d", true, false],
+  ["[[:digit:]].ts", "5.ts", true, false],
+  ["[[:digit:]].ts", "x.ts", false, false],
+  ["[!ab].ts", "c.ts", true, false],
+  ["[]a].ts", "].ts", true, false],
+  ["[c-a].ts", "c.ts", true, false],
+  ["[[:unknown:]].ts", "x.ts", false, false],
+  ["[abc", "a", false, false],
+  ["(a|b)", "a", false, false],
+  ["(a|b)", "(a|b)", true, false],
+  ["\uE000", "\uE000", true, false],
+  ["\uE001", "\uE001", true, false],
+  ["中文", "src/中文", true, false],
+];
+
+test("preserves upstream ignore pattern matching and rule precedence", () => {
+  ignoreCases.forEach(([pattern, path, ignored, unignored]) => {
+    const matcher = createIgnoreMatcher(pattern);
+    const actual = matcher.test(path);
+    const expected = { ignored, unignored };
+    assert.deepEqual(actual, expected, JSON.stringify({ pattern, path }));
+  });
+});
+
+test("does not interpret escaped wildcard markers as wildcards", () => {
+  const matcher = createIgnoreMatcher("\\*\n\uE000\n\uE001");
+  assert.equal(matcher.test("anything").ignored, false);
+  assert.equal(matcher.test("*").ignored, true);
+  assert.equal(matcher.test("\uE000").ignored, true);
+  assert.equal(matcher.test("\uE001").ignored, true);
+});
+
+test("bounds wildcard backtracking for repeated literal segments", () => {
+  const pattern = "*a".repeat(30) + "z";
+  const path = "a".repeat(500);
+  const matcher = createIgnoreMatcher(pattern);
+  assert.equal(matcher.test(path).ignored, false);
+});
+
+test("rejects paths outside the relative matcher boundary", () => {
+  const matcher = createIgnoreMatcher("*");
+  ["", "/", ".", "..", "./file", "../file"].forEach((path) => {
+    assert.throws(() => matcher.test(path), /nonempty relative path/);
+  });
+});
+
+test("bounds concurrent path work and drains all tasks", async () => {
+  const state = { active: 0, peak: 0, completed: 0 };
+  const paths = workPaths();
+  const visit = async () => {
+    state.active += 1;
+    state.peak = Math.max(state.peak, state.active);
+    await setImmediate();
+    state.active -= 1;
+    state.completed += 1;
+  };
+  const controller = new AbortController();
+  await forEachPath(paths, visit, { controller, concurrency: 2 });
+  assert.deepEqual(state, { active: 0, peak: 2, completed: 4 });
+});
+
+test("aborts sibling tasks and closes the source after a task fails", async () => {
+  const failure = new Error("inspection failed");
+  const state: WorkState = { closed: false, settled: false, started: [] };
+  const controller = new AbortController();
+  const paths = failingWorkPaths(state);
+  const visit = failingVisitor(state, failure);
+  await assert.rejects(forEachPath(paths, visit, { controller, concurrency: 2 }), failure);
+  assert.deepEqual(state, { closed: true, settled: true, started: ["fail", "waiting"] });
+});
+
+test("aborts and joins pending work when the source fails", async () => {
+  const failure = new Error("inventory failed");
+  const state: WorkState = { closed: false, settled: false, started: [] };
+  const controller = new AbortController();
+  const paths = failingWorkPaths(state, failure);
+  const visit = failingVisitor(state, failure);
+  await assert.rejects(forEachPath(paths, visit, { controller, concurrency: 2 }), failure);
+  assert.deepEqual(state, { closed: true, settled: true, started: ["waiting"] });
 });
 
 test("diagnoses non-Git projects with nested ignore rules", async (t) => {
@@ -268,6 +391,74 @@ test("propagates Git reader errors", async (t) => {
   setGitOutputReader(() => Promise.reject(new Error("Git reader unavailable")));
   await assert.rejects(diagnose(root), /Git reader unavailable/);
 });
+
+test("cancels and joins a Git producer when iteration stops early", async (t) => {
+  const root = createFixture(t, true);
+  const state = { cancelled: false, settled: false };
+  setGitOutputReader(cancellingGitReader(state));
+  const controller = new AbortController();
+  const paths = projectFilePaths(root, controller.signal);
+  assert.equal((await paths.next()).value, "index.ts");
+  await paths.return(undefined);
+  assert.deepEqual(state, { cancelled: true, settled: true });
+});
+
+const cancellingGitReader =
+  (state: GitWorkState): GitOutputReader =>
+  async (_root, args, consume, registerCancel) => {
+    if (args.includes("--deleted")) return 0;
+    const stopped = new Promise<void>((resolve) =>
+      registerCancel(() => {
+        state.cancelled = true;
+        resolve();
+      }),
+    );
+    try {
+      await consume(Buffer.from("index.ts\0"));
+      await stopped;
+      return 0;
+    } finally {
+      state.settled = true;
+    }
+  };
+
+const workPaths = async function* (): AsyncGenerator<string> {
+  yield* ["a", "b", "c", "d"];
+};
+
+const failingWorkPaths = async function* (
+  state: WorkState,
+  failure?: Error,
+): AsyncGenerator<string> {
+  try {
+    if (failure) {
+      yield "waiting";
+      throw failure;
+    }
+    yield* ["fail", "waiting", "later"];
+  } finally {
+    state.closed = true;
+  }
+};
+
+const failingVisitor =
+  (state: WorkState, failure: Error) => async (path: string, signal: AbortSignal) => {
+    state.started = state.started.concat(path);
+    if (path === "fail") {
+      await setImmediate();
+      throw failure;
+    }
+    await new Promise<void>((resolve) => {
+      signal.addEventListener(
+        "abort",
+        () => {
+          state.settled = true;
+          resolve();
+        },
+        { once: true },
+      );
+    });
+  };
 
 const createFixture = (t: TestContext, withGit = false): string => {
   const root = mkdtempSync(join(tmpdir(), "legibility-diagnose-"));
