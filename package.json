@@ -1,6 +1,6 @@
 {
   "name": "legibility",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "description": "Configure existing Legibility tools for readable code.",
   "homepage": "https://github.com/yowainwright/legibility",
   "bugs": {
