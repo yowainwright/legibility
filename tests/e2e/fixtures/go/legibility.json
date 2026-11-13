@@ -1,0 +1,7 @@
+{
+  "languages": ["go"],
+  "linters": {
+    "go-lint-legibility": { "args": ["./..."] }
+  },
+  "updates": { "enabled": false }
+}

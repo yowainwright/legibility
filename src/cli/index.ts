@@ -8,7 +8,16 @@ import {
   readdirSync,
   writeFileSync,
 } from "node:fs";
-import { basename, delimiter, dirname, extname, join, relative, resolve } from "node:path";
+import {
+  basename,
+  delimiter,
+  dirname,
+  extname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from "node:path";
 import { execFile, spawn } from "node:child_process";
 import { parseArgs, promisify } from "node:util";
 import ruleCatalogJson from "../rules/search.json" with { type: "json" };
@@ -68,6 +77,9 @@ import type {
   HomebrewFormulaPayload,
   HomebrewLinterUpdate,
   HomebrewOutdatedFormula,
+  HookEvent,
+  HookPolicy,
+  HookSettings,
   JsonObject,
   Languages,
   Linter,
@@ -83,7 +95,7 @@ import type { Logger } from "../obs/types.ts";
 export type { CommandRunner } from "./types.ts";
 export { formatStyleguide, promptForSetup };
 
-type CliCommand = "rule" | "rules" | "update" | undefined;
+type CliCommand = "hook" | "rule" | "rules" | "update" | undefined;
 
 type CatalogOptions = {
   command: CliCommand;
@@ -110,6 +122,17 @@ type ConfiguredLinterRun = {
 };
 
 type SetupProjectSelection = { exitCode: number } | { names: string[] };
+
+type HookInput = { cwd: string; event: HookEvent };
+type HookRun = {
+  definition: LinterDefinition;
+  args: string[];
+  policy: HookPolicy;
+  rules: HookRulePolicy[];
+};
+type HookResult = { exitCode: number; output: string; stdout?: string };
+type HookFailure = HookResult & { linter: string; blocking: boolean };
+type HookRulePolicy = { native: string; policy: HookPolicy };
 
 type SetupConfigurationRequest = {
   root: string;
@@ -162,7 +185,7 @@ let nativeCommandRunner: CommandRunner | undefined;
 
 const RULE_CATALOG = ruleCatalogJson as RuleRuntimeCatalog;
 
-const COMMAND_NAMES = new Set(["rule", "rules", "update"]);
+const COMMAND_NAMES = new Set(["hook", "rule", "rules", "update"]);
 
 const CLI_PARSE_OPTIONS = {
   config: { type: "string", short: "c" },
@@ -204,8 +227,8 @@ export const readSource = (path: string): Source => {
   return { path, root: dirname(path), config: parseConfig(value) };
 };
 
-export const discoverConfig = (): Source | undefined => {
-  const matches = collectSources(resolve(process.cwd()));
+export const discoverConfig = (root = process.cwd()): Source | undefined => {
+  const matches = collectSources(resolve(root));
   if (matches.length === 0) return undefined;
   if (matches.length === 1) return matches[0];
   const paths = matches.map((match) => match.path).join(", ");
@@ -324,6 +347,21 @@ export const run = async (args: string[]): Promise<number> => {
   return runConfiguredCommand(options, log);
 };
 
+export const resolveHookPolicy = (
+  event: HookEvent,
+  ...layers: (HookSettings | undefined)[]
+): HookPolicy => {
+  const initial = { enabled: layers[0] !== undefined, blocking: event === "Stop" };
+  return layers.reduce<HookPolicy>((inherited, settings) => {
+    if (settings === undefined) return inherited;
+    const enabled = settings.enabled ?? inherited.enabled;
+    const blocking = settings.blocking ?? inherited.blocking;
+    const general = { enabled, blocking };
+    const scoped = settings[event];
+    return Object.assign({}, general, scoped);
+  }, initial);
+};
+
 const promptForSetup = async (options: Options): Promise<number> => {
   const log = createLogger({ file: "index.ts", isLogging: options.verbose });
   if (!process.stdin.isTTY) return reportMissingConfig(log);
@@ -338,6 +376,7 @@ const promptForSetup = async (options: Options): Promise<number> => {
 };
 
 const parseLinter = (name: string, value: unknown): Linter => {
+  validateLinterHooks(name, value);
   if (!isObject(value)) throw new Error(`linters.${name} must be an object`);
   const enabledValue = value.enabled;
   const enabled = enabledValue === undefined ? true : enabledValue;
@@ -348,6 +387,32 @@ const parseLinter = (name: string, value: unknown): Linter => {
   const args = argsValue === undefined ? [] : argsValue;
   if (!isStringArray(args)) throw new Error(`linters.${name}.args must be an array of strings`);
   return Object.assign({}, value, { enabled, args });
+};
+
+const validateLinterHooks = (name: string, value: unknown): void => {
+  if (!isObject(value)) return;
+  const path = `linters.${name}`;
+  validateHookSettings(value.hooks, `${path}.hooks`);
+  if (value.rules === undefined) return;
+  if (!isObject(value.rules)) throw new Error(`${path}.rules must be an object`);
+  Object.entries(value.rules).forEach(([id, rule]) => {
+    const rulePath = `${path}.rules.${id}`;
+    if (!isObject(rule)) throw new Error(`${rulePath} must be an object`);
+    if (rule.hooks === undefined) throw new Error(`${rulePath}.hooks is required`);
+    nativeHookRule(name, id);
+    validateHookSettings(rule.hooks, `${rulePath}.hooks`);
+  });
+};
+
+const nativeHookRule = (linter: string, id: string): string => {
+  if (linter !== "oxlint-plugin-legibility") {
+    throw new Error(`rule hook overrides currently require oxlint-plugin-legibility: ${linter}`);
+  }
+  const rule = RULE_CATALOG.rules.find((entry) => entry.id === id);
+  const variants = rule?.variants.filter((variant) => variant.plugin === "Oxlint") ?? [];
+  const names = Array.from(new Set(variants.map((variant) => variant.nativeRule)));
+  if (names.length !== 1) throw new Error(`no unique Oxlint hook rule for ${id}`);
+  return names[0]!;
 };
 
 const collectSources = (directory: string): Source[] => {
@@ -417,6 +482,7 @@ const validateRuleOptions = (options: CatalogOptions): void => {
 
 const appendCommandOptions = (values: CommandOptionValues): Options => {
   const { command, enable, language, options, plugin, positionals, search } = values;
+  if (command === "hook") return Object.assign({}, options, { hook: true });
   if (command === "rule") {
     const ruleOptions = Object.assign({}, options, {
       rule: true,
@@ -594,24 +660,6 @@ const validateNativeArguments = (linters: readonly unknown[], nativeArgs: string
   if (hasAmbiguousNativeArguments) {
     throw new Error("native arguments after -- require one selected linter");
   }
-};
-
-const selectedLinters = (
-  config: Config,
-  names: string[],
-): ReadonlyArray<readonly [LinterDefinition, Linter]> => {
-  const selected = names.length > 0 ? names : Object.keys(config.linters);
-  const definitions = new Map(CONFIG_LINTER_DEFINITIONS.map((item) => [item.id, item] as const));
-  const entries = selected.map((id) => {
-    const linter = config.linters[id];
-    if (!linter) throw new Error(`linter is not configured: ${id}`);
-    const definition = definitions.get(id);
-    if (!definition) throw new Error(`linter is not supported: ${id}`);
-    return [definition, linter] as const;
-  });
-  const enabled = entries.filter(([, linter]) => linter.enabled);
-  if (enabled.length === 0) throw new Error("configuration enables no linters");
-  return enabled;
 };
 
 const styleguideCommandAvailable = (): boolean => true;
@@ -1177,6 +1225,7 @@ const searchRules = (query: string): RuleRuntimeCatalog["rules"] => {
 
 const runConfiguredCommand = async (options: Options, log: Logger): Promise<number> => {
   try {
+    if (options.hook) return await runHook(options);
     if (options.rule) return runRule(options, log);
     if (options.update) return await runUpdate(options, log);
     const source = readRunSource(options);
@@ -1187,6 +1236,202 @@ const runConfiguredCommand = async (options: Options, log: Logger): Promise<numb
     log.fail(`Error: ${error instanceof Error ? error.message : String(error)}`);
     return 2;
   }
+};
+
+const runHook = async (options: Options): Promise<number> => {
+  try {
+    validateHookOptions(options);
+    const input = readHookInput();
+    const source = readHookSource(input, options);
+    const failures = await checkHookSource(source, input.event, options);
+    const response = hookResponse(input.event, failures);
+    process.stdout.write(`${JSON.stringify(response)}\n`);
+    return 0;
+  } catch (error: unknown) {
+    const reason = error instanceof Error ? error.message : String(error);
+    process.stdout.write(`${JSON.stringify({ decision: "block", reason })}\n`);
+    return 0;
+  }
+};
+
+const validateHookOptions = (options: Options): void => {
+  const hasNativeArgs = options.nativeArgs.length > 0;
+  const hasUnsupportedOption = options.dryRun || hasNativeArgs;
+  if (hasUnsupportedOption) throw new Error("hook does not accept --dry-run or native arguments");
+};
+
+const checkHookSource = async (
+  source: Source | undefined,
+  event: HookEvent,
+  options: Options,
+): Promise<HookFailure[]> => {
+  if (!source) return [];
+  const runs = hookRuns(source.config, event, options);
+  let failures: HookFailure[] = [];
+  for (const run of runs) {
+    const result = await executeHookRun(run, source.root);
+    if (result.exitCode === 0) continue;
+    failures = failures.concat(classifyHookFailure(run, result));
+  }
+  return failures;
+};
+
+const readHookInput = (): HookInput => {
+  const value: unknown = JSON.parse(readFileSync(0, "utf8"));
+  if (!isObject(value)) throw new Error("hook input must be a JSON object");
+  const event = value.hook_event_name;
+  const isSupported = event === "PostToolUse" || event === "Stop";
+  if (!isSupported) throw new Error("hook_event_name must be PostToolUse or Stop");
+  const cwd = value.cwd;
+  if (typeof cwd !== "string") throw new Error("hook cwd must be an absolute directory");
+  if (!isAbsolute(cwd)) throw new Error("hook cwd must be an absolute directory");
+  return { cwd, event };
+};
+
+const readHookSource = (input: HookInput, options: Options): Source | undefined => {
+  if (options.configPath) return readSource(resolve(input.cwd, options.configPath));
+  return discoverConfig(input.cwd);
+};
+
+const hookRuns = (config: Config, event: HookEvent, options: Options): HookRun[] => {
+  const names = options.linters.length > 0 ? options.linters : Object.keys(config.linters);
+  names.forEach((name) => {
+    if (!config.linters[name]) throw new Error(`linter is not configured: ${name}`);
+  });
+  const hasEnabled = names.some((name) => config.linters[name]?.enabled);
+  if (!hasEnabled) return [];
+  return selectedLinters(config, names).flatMap(([definition, linter]) =>
+    hookLinterRuns(definition, linter, config.hooks, event),
+  );
+};
+
+const selectedLinters = (
+  config: Config,
+  names: string[],
+): ReadonlyArray<readonly [LinterDefinition, Linter]> => {
+  const selected = names.length > 0 ? names : Object.keys(config.linters);
+  const definitions = new Map(CONFIG_LINTER_DEFINITIONS.map((item) => [item.id, item] as const));
+  const entries = selected.map((id) => {
+    const linter = config.linters[id];
+    if (!linter) throw new Error(`linter is not configured: ${id}`);
+    const definition = definitions.get(id);
+    if (!definition) throw new Error(`linter is not supported: ${id}`);
+    return [definition, linter] as const;
+  });
+  const enabled = entries.filter(([, linter]) => linter.enabled);
+  if (enabled.length === 0) throw new Error("configuration enables no linters");
+  return enabled;
+};
+
+const hookLinterRuns = (
+  definition: LinterDefinition,
+  linter: Linter,
+  hooks: HookSettings | undefined,
+  event: HookEvent,
+): HookRun[] => {
+  const layers = [hooks, linter.hooks];
+  const policy = resolveHookPolicy(event, ...layers);
+  const rules = Object.entries(linter.rules ?? {}).map(([id, rule]) => {
+    const native = nativeHookRule(definition.id, id);
+    const rulePolicy = resolveHookPolicy(event, ...layers, rule.hooks);
+    return { native, policy: rulePolicy };
+  });
+  return planHookRuns(definition, linter.args, policy, rules);
+};
+
+const planHookRuns = (
+  definition: LinterDefinition,
+  args: string[],
+  policy: HookPolicy,
+  rules: HookRulePolicy[],
+): HookRun[] => {
+  const hasEnabledRule = rules.some((rule) => rule.policy.enabled);
+  const shouldRun = policy.enabled || hasEnabledRule;
+  if (!shouldRun) return [];
+  const nativeArgs = rules.length > 0 ? insertHookFlags(args, ["--format", "json"]) : args;
+  return [{ definition, args: nativeArgs, policy, rules }];
+};
+
+const insertHookFlags = (args: string[], flags: string[]): string[] => {
+  const separator = args.indexOf("--");
+  if (separator < 0) return args.concat(flags);
+  return args.slice(0, separator).concat(flags, args.slice(separator));
+};
+
+const executeHookRun = async (run: HookRun, root: string): Promise<HookResult> => {
+  const env = commandEnvironment(root, run.definition.command);
+  try {
+    await execFileAsync(run.definition.command, run.args, {
+      cwd: root,
+      env,
+      timeout: 60000,
+      maxBuffer: 262144,
+    });
+    return { exitCode: 0, output: "" };
+  } catch (error: unknown) {
+    return hookExecutionFailure(error);
+  }
+};
+
+const hookExecutionFailure = (error: unknown): HookResult => {
+  if (!isObject(error)) return { exitCode: 2, output: String(error) };
+  const exitCode = typeof error.code === "number" ? error.code : 2;
+  const captured = [error.stdout, error.stderr]
+    .filter((value) => typeof value === "string")
+    .join("\n");
+  const output = captured.trim() ? captured : String(error.message);
+  const stdout = typeof error.stdout === "string" ? error.stdout : "";
+  return { exitCode, output: output.slice(0, 12000), stdout };
+};
+
+const classifyHookFailure = (run: HookRun, result: HookResult): HookFailure[] => {
+  const linter = run.definition.id;
+  const fallback = Object.assign({}, result, { linter, blocking: run.policy.blocking });
+  if (run.rules.length === 0) return [fallback];
+  const diagnostics = readHookDiagnostics(result.stdout ?? "");
+  if (diagnostics.length === 0) return [fallback];
+  const policies = new Map(run.rules.map((rule) => [rule.native, rule.policy]));
+  return diagnostics.flatMap((diagnostic) => {
+    const native = diagnosticNativeRule(diagnostic.code) ?? "";
+    const policy = policies.get(native) ?? run.policy;
+    if (!policy.enabled) return [];
+    const output = JSON.stringify(diagnostic);
+    return [{ exitCode: result.exitCode, output, linter, blocking: policy.blocking }];
+  });
+};
+
+const readHookDiagnostics = (stdout: string): JsonObject[] => {
+  const value: unknown = JSON.parse(stdout);
+  if (!isObject(value)) throw new Error("Oxlint hook output must be a JSON object");
+  if (!Array.isArray(value.diagnostics))
+    throw new Error("Oxlint hook output is missing diagnostics");
+  if (!value.diagnostics.every(isObject)) throw new Error("invalid Oxlint hook diagnostics");
+  return value.diagnostics;
+};
+
+const diagnosticNativeRule = (value: unknown): string | undefined => {
+  if (typeof value !== "string") return undefined;
+  const match = /^([^()]+)\(([^()]+)\)$/.exec(value);
+  if (!match) return value;
+  const plugin = match[1];
+  const rule = match[2];
+  if (plugin === "eslint") return rule;
+  return `${plugin}/${rule}`;
+};
+
+const hookResponse = (event: HookEvent, failures: HookFailure[]): JsonObject => {
+  if (failures.length === 0) return {};
+  const ordered = failures.toSorted(
+    (left, right) => Number(right.blocking) - Number(left.blocking),
+  );
+  const reason = ordered
+    .map((failure) => `${failure.linter} (exit ${failure.exitCode}):\n${failure.output}`)
+    .join("\n\n")
+    .slice(0, 10000);
+  const blocking = failures.some((failure) => failure.blocking);
+  if (blocking) return { decision: "block", reason };
+  if (event === "Stop") return { systemMessage: reason };
+  return { hookSpecificOutput: { hookEventName: event, additionalContext: reason } };
 };
 
 const checkForUpdates = async (source: Source, options: Options, log: Logger): Promise<void> => {
@@ -1215,6 +1460,7 @@ const runUpdate = (options: Options, log: Logger): Promise<number> | number => {
 };
 
 const parseConfig = (value: unknown): Config => {
+  validateConfigHooks(value);
   if (!isObject(value)) throw new Error("configuration must be an object");
   if (!isObject(value.linters)) {
     throw new Error("configuration must contain a linters object");
@@ -1228,6 +1474,38 @@ const parseConfig = (value: unknown): Config => {
     linters: Object.fromEntries(entries),
     updates: parseUpdates(value.updates),
   });
+};
+
+const validateConfigHooks = (value: unknown): void => {
+  if (!isObject(value)) return;
+  validateHookSettings(value.hooks, "hooks");
+};
+
+const validateHookSettings = (value: unknown, path: string): void => {
+  if (value === undefined) return;
+  if (!isObject(value)) throw new Error(`${path} must be an object`);
+  Object.entries(value).forEach(([key, setting]) => {
+    const field = `${path}.${key}`;
+    const isEvent = key === "PostToolUse" || key === "Stop";
+    if (isEvent) {
+      validateHookEventSettings(setting, field);
+      return;
+    }
+    validateHookBoolean(key, setting, field);
+  });
+};
+
+const validateHookEventSettings = (value: unknown, path: string): void => {
+  if (!isObject(value)) throw new Error(`${path} must be an object`);
+  Object.entries(value).forEach(([key, setting]) => {
+    validateHookBoolean(key, setting, `${path}.${key}`);
+  });
+};
+
+const validateHookBoolean = (key: string, value: unknown, path: string): void => {
+  const isPolicyKey = key === "enabled" || key === "blocking";
+  if (!isPolicyKey) throw new Error(`unsupported hook setting: ${path}`);
+  if (typeof value !== "boolean") throw new Error(`${path} must be a boolean`);
 };
 
 const parseLanguages = (value: unknown): Languages | undefined => {

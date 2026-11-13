@@ -236,6 +236,7 @@ export const HELP_TEXT = `Usage: legibility [command] [options] [-- native-args]
 Run the enabled linters from the discovered Legibility configuration.
 
 Commands:
+  hook                 Run configured Codex lifecycle checks from JSON on stdin
   update               Check and update outdated Homebrew linters
   rules [--search <terms>]  Search rule IDs, descriptions, examples, tags, languages, and coverage
   rule <id>             Inspect a rule and its language/plugin mappings

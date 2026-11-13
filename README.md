@@ -425,8 +425,12 @@ legibility --styleguide
 
 ## Configuration
 
+[Try features in an E2E sandbox](tests/e2e/README.md), using the same real-linter fixtures as automated verification.
+
 Legibility reads JSON configuration from a file or from `package.json#legibility`.
 The field examples below are excerpts. Combine them in one config with at least one enabled linter.
+
+[Codex hooks](docs/README.md#codex-hooks) provide feedback after edits and block completion on unresolved failures. Hooks are opt-in, with project → linter → rule overrides.
 
 ### Config Files
 
