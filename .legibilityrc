@@ -11,7 +11,10 @@
       "args": ["--profile", "ci", "src", "scripts", "tests"]
     },
     "oxlint-plugin-legibility": {
-      "args": ["--config", "scripts/oxlintrc.json", "src", "scripts", "tests", "--deny-warnings"]
+      "args": [
+        "--config", "scripts/oxlintrc.json", "src", "scripts", "tests",
+        "--ignore-pattern", "tests/e2e/fixtures/**", "--deny-warnings"
+      ]
     }
   },
   "updates": {

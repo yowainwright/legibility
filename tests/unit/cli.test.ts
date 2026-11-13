@@ -8,11 +8,37 @@ import {
   homebrewLinterUpdates,
   parseHomebrewOutdated,
   parseOptions,
+  resolveHookPolicy,
 } from "../../src/cli/index.ts";
 import { CONFIG_LINTER_DEFINITIONS, STYLEGUIDE_TOUR_CHOICES } from "../../src/cli/constants.ts";
 import { promptCheckbox, setPromptLine } from "../../src/cli/prompts/index.ts";
 import { promptForLinterInstall, promptForLinters } from "../../src/cli/utils.ts";
 import type { JsonObject } from "../../src/cli/types.ts";
+
+test("hook policy inherits each field and preserves explicit false overrides", () => {
+  const project = { enabled: true, Stop: { blocking: true } };
+  const linter = { Stop: { enabled: false } };
+  const rule = { Stop: { enabled: true, blocking: false } };
+  assert.deepEqual(resolveHookPolicy("Stop", project, linter, rule), {
+    enabled: true,
+    blocking: false,
+  });
+});
+
+test("hook defaults are opt-in, advisory after edits, blocking at completion", () => {
+  assert.deepEqual(resolveHookPolicy("PostToolUse", undefined), {
+    enabled: false,
+    blocking: false,
+  });
+  assert.deepEqual(resolveHookPolicy("PostToolUse", {}), { enabled: true, blocking: false });
+  assert.deepEqual(resolveHookPolicy("Stop", {}), { enabled: true, blocking: true });
+});
+
+test("more specific general policy overrides parent event policy", () => {
+  const project = { Stop: { blocking: true } };
+  const linter = { blocking: false };
+  assert.equal(resolveHookPolicy("Stop", project, linter).blocking, false);
+});
 
 const homebrewPayload = {
   formulae: [

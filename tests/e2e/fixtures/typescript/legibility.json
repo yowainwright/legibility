@@ -1,0 +1,8 @@
+{
+  "languages": ["typescript"],
+  "hooks": { "enabled": true },
+  "linters": {
+    "oxlint-plugin-legibility": { "args": ["."] }
+  },
+  "updates": { "enabled": false }
+}

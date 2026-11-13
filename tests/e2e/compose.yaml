@@ -1,0 +1,26 @@
+name: legibility-sandbox
+services:
+  typescript:
+    network_mode: bridge
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile
+      target: typescript
+    stdin_open: true
+    tty: true
+  go:
+    network_mode: bridge
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile
+      target: go
+    stdin_open: true
+    tty: true
+  python:
+    network_mode: bridge
+    build:
+      context: ../..
+      dockerfile: tests/e2e/Dockerfile
+      target: python
+    stdin_open: true
+    tty: true
