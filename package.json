@@ -42,6 +42,7 @@
     "test:unit": "node --test tests/unit/*.test.ts",
     "test:integration": "node --test tests/integration/*.test.ts",
     "test:e2e": "pnpm run build:native:release && LEGIBILITY_NATIVE_E2E=1 node --test tests/e2e/*.test.ts",
+    "test:sandbox": "node --test tests/e2e/index.ts",
     "test:native": "pnpm run test:e2e",
     "hooks:setup": "sh scripts/setup.sh",
     "prepare": "sh scripts/setup.sh && pnpm run build",

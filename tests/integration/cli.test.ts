@@ -7,6 +7,7 @@ import {
   mkdirSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import test from "node:test";
@@ -30,6 +31,62 @@ const enableRuleArgs = [
   "--enable",
 ];
 
+const checkHookPolicy = (hooks: unknown, event: string, expected: string | undefined): void => {
+  const fixture = createFixture();
+  try {
+    createFakeLinter(fixture.root, "fs-lint");
+    writeConfig(fixture.root, { hooks, linters: { "fs-lint": { args: ["check"] } } });
+    const result = invokeHook(fixture.root, event);
+    assert.equal(result.status, 0, result.stderr);
+    const response = JSON.parse(result.stdout);
+    assert.equal(response.decision, expected);
+    if (expected) assert.match(response.reason, /fs-lint/);
+    if (hooks === undefined) assert.deepEqual(response, {});
+    const isAdvisory = event === "PostToolUse" && hooks;
+    if (isAdvisory) assert.match(response.hookSpecificOutput.additionalContext, /fs-lint/);
+  } finally {
+    fixture.cleanup();
+  }
+};
+
+test("hook defaults return Codex advisory feedback after edits", () => {
+  checkHookPolicy({ enabled: true }, "PostToolUse", undefined);
+});
+
+test("hook defaults block completion on a native failure", () => {
+  checkHookPolicy({ enabled: true }, "Stop", "block");
+});
+
+test("existing configurations do not run hooks", () => {
+  checkHookPolicy(undefined, "Stop", undefined);
+});
+
+test("hook rejects invalid input with structured feedback", () => {
+  const fixture = createFixture();
+  try {
+    const result = invokeHook(fixture.root, "PreToolUse");
+    const response = JSON.parse(result.stdout);
+    assert.equal(result.status, 0);
+    assert.equal(response.decision, "block");
+    assert.match(response.reason, /PostToolUse or Stop/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+const createHookRuleFixture = (hooks: unknown, severity = "error", linterHooks?: unknown) => {
+  const fixture = createFixture();
+  const root = fixture.root;
+  writeHookRuleSource(root, severity);
+  const linter = { args: ["index.js"], hooks: linterHooks, rules: { LEG038: { hooks } } };
+  const config = { hooks: { enabled: true }, linters: { "oxlint-plugin-legibility": linter } };
+  writeConfig(root, config);
+  const directory = join(root, "node_modules", ".bin");
+  mkdirSync(directory, { recursive: true });
+  symlinkSync(oxlintPath, join(directory, "oxlint"));
+  return fixture;
+};
+
 const createFixture = (): { root: string; cleanup: () => void } => {
   const root = mkdtempSync(join(tmpdir(), "legibility-test-"));
   return { root, cleanup: () => rmSync(root, { recursive: true, force: true }) };
@@ -51,6 +108,179 @@ const createFakeLinter = (root: string, name: string): void => {
   );
   chmodSync(path, 0o755);
 };
+
+const invokeHook = (
+  root: string,
+  event: string,
+  extra: Record<string, unknown> = {},
+  environment: NodeJS.ProcessEnv = {},
+) => {
+  const payload = Object.assign({ cwd: root, hook_event_name: event }, extra);
+  const testEnvironment = { LEGIBILITY_TEST_EXIT: "1", LEGIBILITY_TEST_LOG: join(root, "calls") };
+  const env = Object.assign({}, process.env, testEnvironment, environment);
+  return spawnSync(process.execPath, [cliPath, "hook", "--config", join(root, "legibility.json")], {
+    cwd: process.cwd(),
+    input: JSON.stringify(payload),
+    encoding: "utf8",
+    env,
+  });
+};
+
+const writeHookRuleSource = (root: string, severity: string): void => {
+  writeFileSync(
+    join(root, ".oxlintrc.json"),
+    JSON.stringify({ rules: { "max-lines-per-function": [severity, { max: 2 }] } }),
+  );
+  writeFileSync(
+    join(root, "index.js"),
+    "function example() {\n  let count = 0;\n  count += 1;\n  return count;\n}\nexample();\n",
+  );
+};
+
+test("rule hook policy isolates real Oxlint diagnostics from parent blocking policy", () => {
+  const fixture = createHookRuleFixture({ Stop: { blocking: false } });
+  try {
+    const result = invokeHook(fixture.root, "Stop", { stop_hook_active: true });
+    const response = JSON.parse(result.stdout);
+    assert.equal(result.status, 0, result.stderr);
+    assert.equal(response.decision, undefined, result.stdout);
+    assert.match(response.systemMessage, /max-lines-per-function/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("a specific rule can block edit feedback and stay blocking on repeated Stop", () => {
+  const fixture = createHookRuleFixture({ PostToolUse: { blocking: true } });
+  try {
+    const edit = JSON.parse(invokeHook(fixture.root, "PostToolUse").stdout);
+    const stop = JSON.parse(invokeHook(fixture.root, "Stop", { stop_hook_active: true }).stdout);
+    assert.equal(edit.decision, "block");
+    assert.equal(stop.decision, "block");
+    assert.match(edit.reason, /max-lines-per-function/);
+    assert.match(edit.reason, /Maximum allowed is 2/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("disabled rule feedback and clean source produce silent hook responses", () => {
+  const fixture = createHookRuleFixture({ enabled: false });
+  try {
+    assert.deepEqual(JSON.parse(invokeHook(fixture.root, "Stop").stdout), {});
+    writeFileSync(join(fixture.root, "index.js"), "export const count = 1;\n");
+    assert.deepEqual(JSON.parse(invokeHook(fixture.root, "Stop").stdout), {});
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("a rule explicitly enables feedback below disabled parent hook policy", () => {
+  const fixture = createHookRuleFixture({ enabled: true });
+  try {
+    const path = join(fixture.root, "legibility.json");
+    const config = JSON.parse(readFileSync(path, "utf8"));
+    config.hooks.enabled = false;
+    writeConfig(fixture.root, config);
+    const response = JSON.parse(invokeHook(fixture.root, "Stop").stdout);
+    assert.equal(response.decision, "block");
+    assert.match(response.reason, /max-lines-per-function/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("linter event policy overrides the project default", () => {
+  const fixture = createHookRuleFixture({});
+  try {
+    const path = join(fixture.root, "legibility.json");
+    const config = JSON.parse(readFileSync(path, "utf8"));
+    config.linters["oxlint-plugin-legibility"].hooks = { Stop: { blocking: false } };
+    writeConfig(fixture.root, config);
+    const response = JSON.parse(invokeHook(fixture.root, "Stop").stdout);
+    assert.equal(response.decision, undefined);
+    assert.match(response.systemMessage, /max-lines-per-function/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("invalid hook policy produces an actionable blocking error", () => {
+  const fixture = createHookRuleFixture({ enabled: "yes" });
+  try {
+    const response = JSON.parse(invokeHook(fixture.root, "PostToolUse").stdout);
+    assert.equal(response.decision, "block");
+    assert.match(response.reason, /rules.LEG038.hooks.enabled must be a boolean/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("warning-only native success still provides feedback and honors a blocking rule", () => {
+  const fixture = createHookRuleFixture({ Stop: { blocking: true } }, "warn");
+  try {
+    const direct = spawnSync(oxlintPath, ["index.js"], { cwd: fixture.root });
+    assert.equal(direct.status, 0);
+    const edit = JSON.parse(invokeHook(fixture.root, "PostToolUse").stdout);
+    const stop = JSON.parse(invokeHook(fixture.root, "Stop").stdout);
+    assert.equal(edit.decision, undefined);
+    assert.match(edit.hookSpecificOutput.additionalContext, /max-lines-per-function/);
+    assert.equal(stop.decision, "block");
+    assert.match(stop.reason, /max-lines-per-function/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("warning-only rule findings respect advisory and disabled overrides", () => {
+  const fixture = createHookRuleFixture({ blocking: false }, "warn");
+  try {
+    const response = JSON.parse(invokeHook(fixture.root, "Stop").stdout);
+    assert.equal(response.decision, undefined);
+    assert.match(response.systemMessage, /max-lines-per-function/);
+    const config = JSON.parse(readFileSync(join(fixture.root, "legibility.json"), "utf8"));
+    config.linters["oxlint-plugin-legibility"].rules.LEG038.hooks.enabled = false;
+    writeConfig(fixture.root, config);
+    assert.deepEqual(JSON.parse(invokeHook(fixture.root, "Stop").stdout), {});
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("missing Oxlint preserves its cause and the advisory linter policy", () => {
+  const fixture = createHookRuleFixture({}, "error", { blocking: false });
+  try {
+    rmSync(join(fixture.root, "node_modules", ".bin", "oxlint"));
+    const result = invokeHook(fixture.root, "Stop", {}, { PATH: fixture.root });
+    const response = JSON.parse(result.stdout);
+    assert.equal(result.status, 0);
+    assert.equal(response.decision, undefined);
+    assert.match(response.systemMessage, /ENOENT/);
+    assert.doesNotMatch(response.systemMessage, /JSON|SyntaxError/);
+  } finally {
+    fixture.cleanup();
+  }
+});
+
+test("unreadable native diagnostics retain their original execution failure", () => {
+  const fixture = createHookRuleFixture({}, "error", { blocking: false });
+  try {
+    const path = join(fixture.root, "node_modules", ".bin", "oxlint");
+    rmSync(path);
+    writeFileSync(
+      path,
+      '#!/bin/sh\nprintf "unavailable diagnostics\\n"\nprintf "native failure\\n" >&2\nexit 2\n',
+    );
+    chmodSync(path, 0o755);
+    const response = JSON.parse(invokeHook(fixture.root, "Stop").stdout);
+    assert.equal(response.decision, undefined);
+    assert.match(response.systemMessage, /unavailable diagnostics/);
+    assert.match(response.systemMessage, /native failure/);
+    assert.doesNotMatch(response.systemMessage, /JSON|SyntaxError/);
+  } finally {
+    fixture.cleanup();
+  }
+});
 
 const createFakeBrew = (root: string): string => {
   const directory = join(root, "fake-bin");

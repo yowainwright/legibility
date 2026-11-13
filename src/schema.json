@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://unpkg.com/legibility/src/schema.json",
-  "x-revision": 5,
+  "x-revision": 6,
   "x-history": "https://github.com/yowainwright/legibility/commits/main/src/schema.json",
   "title": "Legibility Configuration",
   "description": "Configuration for selecting and invoking Legibility linters.",
@@ -23,7 +23,9 @@
       "oneOf": [
         {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         {
           "type": "object",
@@ -58,6 +60,9 @@
     "updates": {
       "$ref": "#/$defs/updates",
       "description": "Project policy for explicitly requested linter updates."
+    },
+    "hooks": {
+      "$ref": "#/$defs/hooks"
     }
   },
   "$defs": {
@@ -82,6 +87,19 @@
           },
           "default": [],
           "description": "Native command-line arguments passed unchanged to the linter."
+        },
+        "hooks": {
+          "$ref": "#/$defs/hooks"
+        },
+        "rules": {
+          "type": "object",
+          "description": "Rule hook overrides; currently supported for Oxlint LEG IDs only.",
+          "propertyNames": {
+            "pattern": "^LEG[0-9]{3}$"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/rule"
+          }
         }
       },
       "additionalProperties": true
@@ -108,6 +126,47 @@
         }
       },
       "additionalProperties": true
+    },
+    "hookPolicy": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "blocking": {
+          "type": "boolean"
+        }
+      }
+    },
+    "hooks": {
+      "type": "object",
+      "description": "Opt-in hook policy. Omitted fields inherit project, then linter, then rule settings. Enabled hooks default to advisory PostToolUse and blocking Stop.",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "blocking": {
+          "type": "boolean"
+        },
+        "PostToolUse": {
+          "$ref": "#/$defs/hookPolicy"
+        },
+        "Stop": {
+          "$ref": "#/$defs/hookPolicy"
+        }
+      }
+    },
+    "rule": {
+      "type": "object",
+      "required": ["hooks"],
+      "properties": {
+        "hooks": {
+          "$ref": "#/$defs/hooks"
+        }
+      },
+      "additionalProperties": false
     }
   }
 }

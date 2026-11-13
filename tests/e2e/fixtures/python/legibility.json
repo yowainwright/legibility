@@ -1,0 +1,7 @@
+{
+  "languages": ["python"],
+  "linters": {
+    "ruff-legibility": { "args": ["check", "."] }
+  },
+  "updates": { "enabled": false }
+}
