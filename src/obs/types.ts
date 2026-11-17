@@ -1,17 +1,6 @@
-export type DebugLogFunc = (message: string, caller: string) => void;
-export type PrintFunc = (message: string) => void;
-export type ItemFunc = (index: number, message: string) => void;
+import type { logger } from "./logger.ts";
 
-export type Logger = {
-  debug: DebugLogFunc;
-  error: DebugLogFunc;
-  fail: PrintFunc;
-  warn: DebugLogFunc;
-  print: PrintFunc;
-  line: PrintFunc;
-  indent: PrintFunc;
-  item: ItemFunc;
-};
+export type Logger = ReturnType<typeof logger>;
 
 export type LoggerOptions = {
   file: string;

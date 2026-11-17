@@ -58,8 +58,10 @@ const renderPromptKey = (): string =>
     "    process.stdin.setRawMode(true);",
     '    process.stdin.once("data", (chunk: Uint8Array) => {',
     "      process.stdin.setRawMode(false);",
+    "      process.stdin.pause();",
     "      resolve(new TextDecoder().decode(chunk));",
     "    });",
+    "    process.stdin.resume();",
     "  });",
   ].join("\n");
 

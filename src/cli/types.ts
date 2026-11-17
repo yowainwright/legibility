@@ -1,11 +1,23 @@
 export type JsonObject = Record<string, unknown>;
 export type Languages = string[] | Record<string, JsonObject>;
 
+export type HookEvent = "PostToolUse" | "Stop";
+export type HookPolicy = { enabled: boolean; blocking: boolean };
+export type HookSettings = {
+  enabled?: boolean;
+  blocking?: boolean;
+  PostToolUse?: Partial<HookPolicy>;
+  Stop?: Partial<HookPolicy>;
+};
+export type HookRule = { hooks: HookSettings };
+
 export type { DetectedLanguage } from "../lib/diagnose/types.ts";
 
 export type Linter = JsonObject & {
   enabled: boolean;
   args: string[];
+  hooks?: HookSettings;
+  rules?: Record<string, HookRule>;
 };
 
 export type LinterDefinition = {
@@ -39,6 +51,7 @@ export type Config = JsonObject & {
   linters: Record<string, Linter>;
   languages?: Languages;
   updates: UpdateConfig;
+  hooks?: HookSettings;
 };
 
 export type Source = {
@@ -101,6 +114,7 @@ export type HomebrewFormulaPayload = {
 };
 
 export type Options = {
+  hook?: boolean;
   configPath?: string;
   dryRun: boolean;
   help: boolean;

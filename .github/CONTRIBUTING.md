@@ -7,6 +7,13 @@ request.
 
 ## Local checks
 
+Use the [E2E sandboxes](../tests/e2e/README.md) to enter a prepared macOS or Linux
+project and try CLI features. The real-linter E2E uses those same fixtures and
+leaves the sandbox available afterward.
+
+For Windows failures, use the [Windows reproduction sandbox](../docs/README.md#windows-reproduction-sandbox).
+It builds local source in an isolated Windows desktop and saves a transcript.
+
 Use Node 26 and pnpm for development. The published package supports Node 24
 and newer:
 

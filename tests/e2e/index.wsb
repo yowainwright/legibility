@@ -1,0 +1,18 @@
+<Configuration>
+  <Networking>Enable</Networking>
+  <MappedFolders>
+    <MappedFolder>
+      <HostFolder>%LEGIBILITY_SOURCE%</HostFolder>
+      <SandboxFolder>C:\legibility-source</SandboxFolder>
+      <ReadOnly>true</ReadOnly>
+    </MappedFolder>
+    <MappedFolder>
+      <HostFolder>%LEGIBILITY_REPORTS%</HostFolder>
+      <SandboxFolder>C:\legibility-reports</SandboxFolder>
+      <ReadOnly>false</ReadOnly>
+    </MappedFolder>
+  </MappedFolders>
+  <LogonCommand>
+    <Command>powershell.exe -NoLogo -NoProfile -NoExit -ExecutionPolicy Bypass -File C:\legibility-source\tests\e2e\index.ps1</Command>
+  </LogonCommand>
+</Configuration>

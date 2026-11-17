@@ -77,5 +77,8 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Rebuild native compiler
+        run: pnpm rebuild scriptc
+
       - name: Run native terminal E2E
         run: pnpm run test:e2e
